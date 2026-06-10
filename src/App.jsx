@@ -1,2447 +1,3709 @@
-import React, { useState, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
-import { Dice5, Copy, Music2, Mic2, Radio, Sliders, Zap, Globe2, RefreshCw, Sparkles, X, Plus, BrainCircuit, Loader2, ChevronDown, ChevronUp, Wand2, ArrowRight, Bot, Microscope, FileText, Lock, Unlock, Gem, Link2, FlaskConical, TestTube2, Info, Power, KeyRound, ShieldCheck, Eye, EyeOff, FileMusic, ScrollText, ZoomIn, ZoomOut, Flame, PenLine, Key, Settings, Crown, LogIn, LogOut, User, Wrench, BookOpen, Smartphone, Trophy, Disc, Lightbulb, Camera, Download } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { 
+  Activity, 
+  Search, 
+  RefreshCw, 
+  Info,
+  BarChart2,
+  Crosshair,
+  ShieldAlert,
+  Target,
+  Zap,
+  X,
+  TrendingUp,
+  Maximize2,
+  Globe,
+  Calculator,
+  Radio,
+  History,
+  Layers,
+  Bitcoin,
+  Radar,
+  Rocket,
+  Send,
+  MessageSquare,
+  Sparkles,
+  Brain,
+  Camera,
+  Download,
+  Flame,
+  Bell,
+  BellRing,
+  AlertTriangle
+} from 'lucide-react';
 
-// === [云端配置区] 请填入您的私有 Firebase 配置 ===
-const firebaseConfig = {
-    apiKey: "AIzaSyASsWMYeVrWdwnzHNSNN-S4v-em7Wxn-fg",
-    authDomain: "xcmm-auth-system.firebaseapp.com",
-    projectId: "xcmm-auth-system",
-    storageBucket: "xcmm-auth-system.firebasestorage.app",
-    messagingSenderId: "766281113604",
-    appId: "1:766281113604:web:318df802cd2fc7b2609551"
-};
+// ==========================================
+// 🚀 ABLY 弹幕系统配置
+// ==========================================
+const ABLY_API_KEY = '保密，自行注册'; 
 
-const PRIVATE_APP_ID = "xcmm-v1"; // 此 ID 必须与您的发卡机保持一致
-
-// 安全初始化 Firebase
-let firebaseApp, auth, db;
-try {
-    const config = typeof __firebase_config !== 'undefined' && __firebase_config ? JSON.parse(__firebase_config) : firebaseConfig;
-    if (config.apiKey && config.apiKey !== "你的API_KEY") {
-        firebaseApp = initializeApp(config);
-        auth = getAuth(firebaseApp);
-        db = getFirestore(firebaseApp);
-    }
-} catch (e) {
-    console.error("Firebase Init Error:", e);
-}
-
-// === 外部常量与数据定义 ===
-
-const strategies = [
-  { value: "Balanced (平衡)", desc: "⚖️ 均衡混合：保持风格、乐器与氛围的完美比例，最稳妥的选择。" },
-  { value: "Rhythmic Hybrid (节奏嫁接)", desc: "🥁 节奏嫁接：使用A风格的律动骨架，强行演奏B风格的乐器，产生律动反差。" },
-  { value: "Timbral Shift (音色置换)", desc: "🎨 音色置换：保留原曲结构，但将乐器完全替换为异国或电子音色，听觉错位。" },
-  { value: "Chaotic (混沌)", desc: "🌪️ 混沌实验：打破常规逻辑，随机制造强烈的风格冲突和不可预测的实验性听感。" },
-  { value: "Mixx Pop (段落硬切)", desc: "🔀 段落硬切：强行将主歌(Verse)与副歌(Chorus)分配为极度反差的曲风，并使用突变音效过渡，制造听觉撕裂与多巴胺爆发。" }
+const DEFAULT_COINS = [
+  'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 
+  'DOGEUSDT', 'ORDIUSDT', 'LINKUSDT', 'AVAXUSDT', 
+  'NEARUSDT', 'RENDERUSDT', 'PEPEUSDT', 'WIFUSDT'
 ];
 
-// 数据库
-const data = {
-  styles: {
-    "中国": [
-      "Mandopop (华语流行)", "Cantopop (粤语流行)", "Hokkien Pop (台语流行/闽南语歌)", 
-      "Chinese Traditional Opera (京剧/戏曲)", "Kunqu Opera (昆曲)", "Qinqiang (秦腔)",
-      "Huangmei Opera (黄梅戏)", "Yue Opera (越剧)", "Peking Opera Percussion (京剧打击乐)",
-      "Guqin Music (古琴曲)", "Chinese Rock (中国摇滚)", "Shaanxi Rock (西北/秦腔摇滚)",
-      "C-Trap (中国陷阱)", "Sichuan Trap (川渝陷阱)", "Northwest Wind (西北风)", 
-      "Jiangnan Sizhu (江南丝竹)", "Xintianyou (信天游)", "Pingtan (苏州评弹)", 
-      "Chinese Orchestra (民乐团)", "Shidaiqu (老上海时代曲)",
-      "Gufeng (古风流行)", "Hanmai (喊麦/MC)", "Taoist Chant (道教音乐)", "Buddhist Chant (佛教梵呗)",
-      "Tibetan Throat Singing (藏式呼麦)", "Mongolian Long Song (蒙古长调)", "Kazakh Kui (哈萨克冬不拉奎)",
-      "Yunnan Folk (云南原生态)", "Dong Folk Chorus (侗族大歌)", "Hakka Hill Songs (客家山歌)",
-      "Xinjiang Uyghur Muqam (维吾尔木卡姆)", "Dongbei Errenzhuan (东北二人转-元素)", 
-      "Hong Kong Disco (港风迪斯科)", "Nanyin (福建南音)", "Hwa-er (花儿/西北民歌)"
-    ],
-    "东南亚 (南洋)": [
-      "V-Pop (越南流行)", "Vinahouse (越南浩室/越鼓)", "Bolero (越式波莱罗)", "Ca Tru (歌筹)",
-      "T-Pop (泰国流行)", "Luk Thung (泰国田园歌)", "Mor Lam (伊桑/莫兰民谣)", "Thai Funk (泰式放克)",
-      "Indo Pop (印尼流行)", "Dangdut (印尼当杜特)", "Gamelan (甘美兰)", "Sundanese Pop (巽他流行)",
-      "OPM (菲律宾流行)", "Budots (菲律宾布多茨舞曲)", "Pinoy Rock (菲律宾摇滚)",
-      "Dikir Barat (马来歌谣)", "Khmer Pop (柬埔寨流行)"
-    ],
-    "日本": [
-      "J-Pop (日本流行)", "City Pop (城市流行)", "Enka (演歌)", "Visual Kei (视觉系)", 
-      "Anime Song (动画歌曲)", "Shibuya-kei (涩谷系)", "J-Core (日本硬核)", "Kawaii Metal (可爱金属)", 
-      "Gagaku (雅乐)", "Shamisen Rock (三味线摇滚)", "Game Music (游戏配乐风)", "Min'yo (日本民谣)",
-      "Vocaloid Style (虚拟歌姬风)", "J-Jazz (日式爵士)", "Technopop (科技流行)", 
-      "Denpa (电波歌)", "Ryukyu Folk (冲绳民谣/岛呗)", "Noh (能剧音乐)"
-    ],
-    "韩国": [
-      "K-Pop (韩国流行/偶像)", "K-Ballad (韩式抒情)", "K-R&B (韩国节奏蓝调)", "K-Hip Hop (韩国嘻哈)", 
-      "Korean Trot (Trot/韩国演歌)", "Techno Trot (电音Trot/Ppongjak)", 
-      "K-Indie (韩国独立)", "K-Rock (韩国摇滚)", "Pansori (板索里/传统说唱)", 
-      "Samul Nori (四物打击乐)", "Sanjo (散调/器乐独奏)", "Sinawi (神房曲/即兴合奏)", 
-      "Jeongak (正乐/宫廷音乐)", "K-Drama OST (韩剧原声)"
-    ],
-    "中东/北非": [
-      "Arabic Pop (阿拉伯流行)", "Raï (阿尔及利亚流行)", "Dabke (黎凡特舞曲)", "Shaabi (埃及街头音乐)",
-      "Persian Classical (波斯古典)", "Turkish Psych Rock (土耳其迷幻摇滚/Anatolian Rock)", "Khaliji (海湾音乐)",
-      "Sufi Whirling Music (苏菲旋转舞曲)", "Mahraganat (埃及电音街头)", "Gnawa (格纳瓦/摩洛哥)",
-      "Andalusian Classical (安达卢西亚古典)", "Maqam (木卡姆调式)"
-    ],
-    "印度": [
-      "Bollywood Item Number (宝莱坞歌舞)", "Hindustani Classical (北印度古典)", "Carnatic Music (南印度古典)", 
-      "Bhangra (旁遮普邦格拉)", "Indian Pop (印度流行)", "Raga Rock (拉格摇滚)", "Sitar Fusion (西塔琴融合)",
-      "Sufi Qawwali (苏菲卡瓦力)", "Goa Trance (果阿迷幻)", "Tamil Film Music (泰米尔电影音乐)", "Baul (孟加拉游吟民谣)"
-    ],
-    "俄罗斯/东欧": [
-      "Russian Pop (俄语流行)", "Sovietwave (苏维埃波/怀旧合成器)", "Russian Chanson (俄式香颂/罪犯歌)",
-      "Russian Hardbass (俄式硬低音)", "Russian Post-Punk (俄式后朋克/Doomer)", "Phonk (飘移/炸街)",
-      "Balalaika Folk (巴拉莱卡民谣)", "Slavic Folk (斯拉夫民谣)", "Orthodox Chant (东正教圣咏)",
-      "Turbo-Folk (涡轮民谣/巴尔干)", "Balkan Brass (巴尔干铜管)"
-    ],
-    "美国": [
-      "Delta Blues (三角洲蓝调)", "Country (乡村音乐)", "New York Hip Hop (纽约嘻哈)", "Chicago House (芝加哥浩室)", 
-      "Motown Soul (摩城灵魂乐)", "Bluegrass (蓝草音乐)", "Gospel (福音音乐)", "Atlanta Trap (亚特兰大陷阱)", 
-      "Surf Rock (冲浪摇滚)", "Americana (美式根源)", "Jazz Fusion (融合爵士)", "Neo-Soul (新灵魂乐)",
-      "East Coast Rap (东岸说唱)", "West Coast G-Funk (西岸放克)", "Appalachian Folk (阿巴拉契亚民谣)",
-      "Detroit Techno (底特律科技)", "Miami Bass (迈阿密低音)", "Jersey Club (泽西俱乐部)", "Drill (钻头音乐)"
-    ],
-    "巴西": [
-      "Samba (桑巴)", "Bossa Nova (波萨诺瓦)", "MPB (巴西流行音乐)", "Baile Funk (巴西放克)", 
-      "Brazilian Phonk (巴西Phonk)", "Forró (福罗舞曲)", "Tropicalia (热带主义)", "Choro (修罗)",
-      "Sertanejo (巴西乡村)", "Pagode (帕戈迪)", "Axé (阿谢)"
-    ],
-    "牙买加/加勒比": [
-      "Reggae (雷鬼)", "Dancehall (舞厅雷鬼)", "Ska (斯卡)", "Dub (达布)", "Rocksteady (稳态摇滚)", 
-      "Calypso (卡利普索)", "Soca (索卡)", "Mento (门托)", "Reggae Fusion (雷鬼融合)", 
-      "Afro-Cuban Jazz (古巴爵士)", "Son Cubano (古巴颂乐)", "Mambo (曼波)", "Zouk (祖克乐)"
-    ],
-    "拉美 (其他)": [
-      "Reggaeton (雷鬼动)", "Tango (探戈/阿根廷)", "Mariachi (墨西哥流浪乐队)", "Bachata (巴恰塔/多米尼加)", 
-      "Cumbia (昆比亚)", "Salsa (萨尔萨)", "Merengue (梅伦格)", "Bolero (波莱罗)",
-      "Norteño (墨西哥北部民谣)", "Latin Trap (拉美陷阱)", "Andean Folk (安第斯民谣)"
-    ],
-    "欧洲 (西/北)": [
-      "French Chanson (法国香颂)", "Italo Disco (意式迪斯科)", "Flamenco (弗拉明戈)", "Britpop (英伦摇滚)", 
-      "Gregorian Chant (格里高利圣咏)", "Polka (波尔卡)", "Celtic Folk (凯尔特民谣)", "German Schlager (德国流行民谣)", 
-      "Eurobeat (欧陆节拍)", "UK Garage (英国车库)", "French House (法式浩室)", "Viking Folk (维京民谣)", 
-      "Klezmer (克莱兹默犹太音乐)", "Irish Jig (爱尔兰吉格舞曲)", "Medieval Folk (中世纪民谣)", "Yé-yé (法式耶耶风)"
-    ],
-    "非洲": [
-      "Afrobeat (非洲节奏/Fela Kuti风)", "Afrobeats (现代非洲流行)", "Highlife (高生活舞曲)", 
-      "Tuareg Desert Blues (图阿雷格沙漠蓝调)", "Soukous (苏库斯)", "Amapiano (南非钢琴浩室)", 
-      "Mbalax (姆巴拉赫)", "Kizomba (基宗巴)", "African Tribal Drums (非洲部落鼓乐)", 
-      "Juju (朱朱音乐)", "Kwaito (南非克威托)"
-    ],
-    "电子/舞曲": [
-      "Techno (工业/科技舞曲)", "Deep House (深邃浩室)", "Trance (恍惚舞曲)", "Dubstep (回响贝斯)", 
-      "Drum and Bass (鼓打贝斯)", "Gabber (加贝/硬核舞曲)", "Synthwave (合成器波)", "IDM (智能舞曲)", 
-      "UK Garage (英国车库舞曲)", "Hardstyle (硬派舞曲)", "Glitch Hop (故障嘻哈)", "Future Bass (未来贝斯)",
-      "Tropical House (热带浩室)", "Ambient Techno (氛围科技)", "Breakcore (碎核)", "Vaporwave (蒸气波)", 
-      "Lo-Fi House (低保真浩室)", "Hyperpop (超流行)", "Dungeon Synth (地牢合成器)", "Witch House (女巫浩室)",
-      "Footwork (芝加哥步舞)", "Complextro (复杂电子)", "Speedcore (极速硬核)"
-    ],
-    "摇滚/金属": [
-      "Heavy Metal (重金属)", "Punk Rock (朋克摇滚)", "Grunge (垃圾摇滚)", "Psychedelic Rock (迷幻摇滚)", 
-      "Norwegian Black Metal (挪威黑金属)", "Shoegaze (盯鞋摇滚)", "Post-Rock (后摇)", "Math Rock (数摇)", 
-      "Industrial Metal (工业金属)", "Folk Metal (民谣金属)", "Nu Metal (新金属)", "Symphonic Metal (交响金属)",
-      "Emo (情绪摇滚)", "Pop Punk (流行朋克)", "Post-Punk (后朋克)", "Doom Metal (毁灭金属)", "Stoner Rock (石人摇滚)"
-    ],
-    "影视/古典": [
-      "Orchestral (管弦乐)", "Baroque (巴洛克)", "Opera (歌剧)", "Epic Trailer Music (史诗预告片音乐)", 
-      "Film Score (电影配乐)", "Minimalist Classical (极简古典)", "Gothic Symphony (哥特交响)", 
-      "Romantic Era (浪漫主义)", "Impressionist (印象派)", "Chamber Music (室内乐)", 
-      "Cyberpunk Score (赛博朋克配乐)", "Horror Score (恐怖配乐)", "Disney Style (迪士尼风格)"
-    ],
-    "爵士/氛围": [
-      "Bebop (比波普爵士)", "Smooth Jazz (平滑爵士)", "Fusion Jazz (融合爵士)", "Lo-Fi Hip Hop (低保真嘻哈)", 
-      "Dark Ambient (黑暗氛围)", "Drone (嗡鸣音乐)", "Vaporwave (蒸气波)", "Acid Jazz (酸性爵士)", 
-      "Elevator Music (电梯音乐)", "Cool Jazz (酷爵士)", "Free Jazz (自由爵士)", 
-      "New Age (新世纪音乐)", "Space Ambient (太空氛围)", "Bossa Jazz (波萨爵士)"
-    ],
-    "其它": [
-      "Ska (斯卡)", "World Fusion (世界融合)", "Experimental Noise (实验噪音)", 
-      "Musique Concrète (具体音乐)", "Spoken Word (念白)", "Acapella (阿卡贝拉)", 
-      "Aboriginal Didgeridoo (澳洲原住民音乐)", "Mongolian Throat Singing (蒙古呼麦)", 
-      "Sea Shanty (水手号子)", "Polynesian Chant (波利尼西亚吟唱)", "Maori Haka (毛利战舞)"
-    ],
-    "戏剧/剧院": [
-      "Broadway Musical (百老汇音乐剧)", "Cabaret (卡巴莱歌舞/夜总会)", "Vaudeville (杂耍剧)"
-    ],
-    "互联网原生/缝合": [
-      "Kawaii Future Bass (可爱未来贝斯)", "Digicore (数码核心)", "Deconstructed Club (解构俱乐部/前卫破碎)", "Bardcore (中世纪酒馆翻唱风)"
-    ],
-    "宗教/祭祀细分": [
-      "Shamanic Ritual (萨满仪式音乐)", "Voodoo Drumming (巫毒鼓乐)"
-    ]
-  },
-  instruments: {
-    "CN中华/东方乐器": [
-      "Erhu (二胡)", "Guzheng (古筝)", "Suona (唢呐)", "Pipa (琵琶)", "Guqin (古琴)", 
-      "Dizi (竹笛)", "Yangqin (扬琴)", "Sanxian (三弦)", "Zhongruan (中阮)", "Liuqin (柳琴)",
-      "Jinghu (京胡)", "Banhu (板胡)", "Bawu (巴乌)", "Xun (埙)", "Guanzi (管子)",
-      "Hulusi (葫芦丝)", "Morin Khuur (马头琴)", "Xiao (箫)", "Sheng (笙)", 
-      "Bianzhong (编钟)", "Gong (大锣)", "Tanggu (堂鼓)", "Muyu (木鱼)", "Paiban (拍板)", "Dombra (冬不拉)",
-      "Shamisen (三味线)", "Koto (日本筝)", "Shakuhachi (尺八)",
-      "Gayageum (伽倻琴)", "Haegeum (奚琴)", "Janggu (长鼓)", "Taepyeongso (太平箫)",
-      "Dan Bau (独弦琴)", "Khene (芦笙)", "Gamelan Gong (甘美兰锣)", "Sitar (西塔琴)"
-    ],
-    "电子/采样 (Digital/FX)": [
-      "808 Bass", "Synthesizer Arpeggios", "Theremin (特雷门琴)", "Otamatone (电音蝌蚪)", "Vocoder (声码器)", 
-      "Sawtooth Lead (锯齿波主音)", "Square Wave Bass (方波贝斯)", "Glitch Samples (故障采样)", "Bitcrushed Drums (位碎鼓)",
-      "Roland TR-909 Kick", "Yamaha DX7 E-Piano", "Moog Bass", "Acid 303 Squelch", "Wobble Bass", "Chiptune Leads",
-      "Synthesizer V (虚拟歌手/AI人声)"
-    ],
-    "西洋/管弦乐器": [
-      "Grand Piano (大钢琴)", "Violin Solo (小提琴独奏)", "Cello Section (大提琴组)", "Trumpet (小号)", "Saxophone (萨克斯)", 
-      "Harp (竖琴)", "Church Organ (教堂管风琴)", "Bagpipes (风笛)", "Accordion (手风琴)", "Clarinet (单簧管)",
-      "French Horn (圆号)", "Oboe (双簧管)", "Flute (长笛)", "Trombone (长号)", "Tuba (大号)", "Harpsichord (羽管键琴)"
-    ],
-    "流行/摇滚乐器": [
-      "Stratocaster Guitar (斯特拉特吉他)", "Les Paul Guitar (Les Paul吉他)", "Precision Bass (P-Bass)", "Acoustic Guitar (木吉他)", 
-      "Drum Kit (架子鼓)", "Overdrive Guitar (过载吉他)", "Slap Bass (击勾贝斯)", "Fender Rhodes (电钢琴)",
-      "12-String Guitar (12弦吉他)", "Fretless Bass (无品贝斯)", "Hammond B3 Organ (哈蒙德风琴)", "Ukulele (尤克里里)"
-    ],
-    "打击/节奏乐器": [
-      "Steel Drums (钢鼓)", "Taiko Drums (太鼓)", "Congas (康加鼓)", "Djembe (金贝鼓)", "Cowbell (牛铃)", 
-      "Finger Snaps (响指)", "Handclaps (拍手)", "Tambourine (铃鼓)", "Gong (锣)", "Cajón (箱鼓)",
-      "Bongos (邦戈鼓)", "Maracas (沙锤)", "Vibraslap (震荡器)", "Tabla (塔布拉鼓)", "Hang Drum (手碟)"
-    ],
-    "世界/部落乐器": [
-      "Didgeridoo (迪吉里杜管)", "Kalimba (拇指琴)", "Pan Flute (排箫)", "Vuvuzela (呜呜祖拉)", 
-      "Balalaika (巴拉莱卡-俄)", "Bayan (巴扬手风琴-俄)",
-      "Berimbau (比林鲍-巴西)", "Cuica (摩擦鼓-巴西)", "Pandeiro (巴西铃鼓)",
-      "Banjo (班卓琴)", "Harmonica (口琴)", "Ocarina (陶笛)", "Oud (乌德琴)", "Bouzouki (布祖基琴)", 
-      "Balafon (巴拉丰)", "Duduk (都都克笛)", "Qanun (卡龙琴)", "Ney (奈伊笛)", "Darbuka (达布卡鼓)",
-      "Hurdy-Gurdy (手摇风琴)", "Lyre (里拉琴)"
-    ],
-    "恐怖/怪诞乐器": [
-      "Rubber chicken scream (尖叫鸡)", "Squeaky toy (吱吱响玩具)", "Waterphone (水琴)", "Aztec Death Whistle (死亡哨)", 
-      "Out of tune Violin (走调小提琴)", "Toy Piano (玩具钢琴)", "Kazoo (卡祖笛)", "Circus Organ (马戏团风琴)",
-      "Bowed Cymbal (琴弓拉镲)", "Reverse Piano (反向钢琴)", "Bone Flute (骨笛)"
-    ],
-    "环境/采样 (Foley)": [
-      "Typewriter clicking (打字机声)", "Chainsaw revving (电锯声)", "Glass breaking (玻璃破碎)", "Rain sounds (雨声)", 
-      "Subway train ambience (地铁环境音)", "Cat meowing (猫叫)", "Dial-up Modem (拨号上网声)", "Siren (警报)", "Gunshots (枪声)",
-      "Vinyl Crackle (黑胶底噪)", "Heartbeat (心跳声)", "Forest Ambience (森林环境)", "City Traffic (城市交通)"
-    ],
-    "先锋/冷门乐器": [
-      "Prepared Piano (加料钢琴)", "Mellotron (美乐特朗/老式采样琴)", "Glass Harmonica (玻璃琴)"
-    ],
-    "极度噪音": [
-      "Bowed Metal (琴弓拉金属)", "Spring Reverb Crash (弹簧混响轰击)", "Tesla Coil (特斯拉线圈放电声)"
-    ],
-    "中国偏门乐器": [
-      "Kouxian (口弦/拔簧)", "Chime Bells (碰铃/风铃)"
-    ]
-  },
-  vocals: {
-    "音色特质 (Tone)": [
-      "Clean Vocal (清澈人声)", "Smoky Voice (烟嗓)", "Husky (沙哑)", "Breathiness (气声)", 
-      "Falsetto (假音)", "Deep Bass Vocal (极低男声)", "Androgynous (中性嗓音)", "Soprano (女高音)", 
-      "Raspy Voice (粗犷颗粒感)", "Velvety Voice (丝绒感/磁性)", "Nasal Tone (鼻音)", 
-      "Ethereal Voice (空灵女声)", "Power Vocal (力量型人声/大歌嗓)"
-    ],
-    "流行/说唱技法 (Pop/Rap Technique)": [
-      "Belting (怒音/强力爆发)", "R&B Runs (R&B转音)", "Melisma (花腔/多音节)", 
-      "Vibrato (颤音)", "Yodeling (约德尔唱法)", "Mumble Rap (呢喃说唱)", 
-      "Chopper Flow (快嘴机关枪)", "Triplet Flow (三连音说唱)", "Melodic Rap (旋律说唱)"
-    ],
-    "民族/戏曲唱腔 (Ethnic/Traditional)": [
-      "Qingyi Vocal (京剧青衣腔)", "Laosheng Vocal (京剧老生腔)", "Kunqu Vocal (昆曲水磨腔)", 
-      "Folk Mountain Song (原生态高亢山歌)", "Tibetan Throat Singing (藏族呼麦)", 
-      "Mongolian Long Song (蒙古长调)", "Enka Vocal (日式演歌转音)", "Pansori Vocal (韩国板索里)", 
-      "Islamic Call to Prayer (宣礼感吟唱)", "Celtic Keening (凯尔特悲叹唱法)"
-    ],
-    "摇滚/极端嗓 (Rock/Extreme)": [
-      "Screaming (嘶吼/尖叫)", "Growling (死嗓/低吼)", "Pig Squeal (水喉/猪叫)", 
-      "Fry Scream (撕裂音/黑嗓)", "False Chord (假声带咆哮)", "Punk Snarl (朋克式乖戾叫嚷)", 
-      "Grunge Drawl (垃圾摇滚慵懒拖音)"
-    ],
-    "亚文化/特殊系 (Subculture/Character)": [
-      "Kawaii Voice (萌音/萝莉音)", "Energetic Idol Vocal (元气偶像音)", "Yandere Whisper (病娇耳语)", 
-      "Anime Opening Vocal (热血日漫腔)", "Boyband Unison (男团式齐唱)", "Vocaloid Tuning (V家电音/初音感)", 
-      "Spoken Word (念白/诗歌朗诵)", "ASMR Whisper (ASMR级低语)", "Lazy/Bored Vocal (厌世慵懒音)"
-    ],
-    "合唱/群体 (Choir/Group)": [
-      "Gospel Choir (黑人福音合唱团)", "Stadium Crowd Chant (万人体育场大合唱)", 
-      "Gang Vocals (帮派式群喊/核嗓合唱)", "Children's Choir (空灵童声合唱)", 
-      "Gregorian Monks (中世纪僧侣吟唱)", "Opera Chorus (史诗歌剧大合唱)", 
-      "Acapella Group (阿卡贝拉纯人声团)", "Male/Female Duet (男女对唱/深情互动)"
-    ],
-    "电子/后期特效 (FX/Electronic)": [
-      "Autotune Heavy (重度电音修音)", "Vocoder (声码器机器人声)", "Vocal Chops (人声切片/碎音)", 
-      "Megaphone Effect (大喇叭/复古电话音)", "Reverse Vocal (反向倒放人声)", 
-      "Glitch Vocal (故障卡顿人声)", "Robotic Voice (无感情AI机械音)", 
-      "Pitch Shifted Down (降调恶魔音)", "Chipmunk Voice (升调花栗鼠音)"
-    ],
-    "微表情/生理声": [
-      "Vocal Fry (极度慵懒气泡音)", "Sighing / Heavy Breathing (叹息与喘息)", "Crying / Sobbing Vocal (带哭腔演唱)"
-    ],
-    "戏剧化演绎": [
-      "Manic Laughter (狂躁笑声)", "Preaching / Sermon (疯狂牧师布道)", "Drunk Mumbling (醉汉嘟囔)"
-    ]
-  },
-  production: {
-    "听感/质感 (Texture)": [
-      "Overdrive (过载)", "Tube saturation (电子管饱和)", "Warm distortion (暖失真)", 
-      "Crunch (嘎吱声)", "Rock tone (摇滚音色)", "8-bit crushed (位深破碎)", 
-      "Clean tone (清音)", "Fuzz (法兹)", "Lo-fi (低保真)", "Hi-Fi (高保真)",
-      "Tape Saturation (磁带饱和)", "Vinyl Crackle (黑胶质感)", "Dry (干声)", "Wet (湿声)"
-    ],
-    "空间/动态 (Spatial/Dynamics)": [
-      "Wall of Sound (音墙)", "Cathedral Reverb (大教堂混响)", "Extreme sidechain (极端侧链)", 
-      "Spatial Audio 8D (8D环绕)", "Autotune Heavy (重度自动修音)", "Stereo Widening (立体声加宽)",
-      "Gated Reverb (门限混响)", "Ping Pong Delay (乒乓延迟)", "Reverse Reverb (反向混响)",
-      "Compression (压缩)", "Panning Automation (声像自动化)", "Tremolo (颤音)",
-      "Vocal Chops (人声切片)", "Tape Stop (磁带停止效果)", "Doppler Effect (多普勒效应)",
-      "Granular Synthesis (颗粒合成)", "Time Stretching (时间拉伸)"
-    ],
-    "复古/特殊 (Retro/Special)": [
-      "Lo-fi grainy tape (低保真磁带)", "Underwater muffling (水下闷音)", "Vinyl crackle (黑胶爆豆声)", 
-      "Phone recording (电话录音音质)", "VHS Wobble (录像带抖动)", "Radio Static (收音机干扰)",
-      "Broken Speaker (破损喇叭)", "Cassette Flutter (卡带抖动)", "Vintage Mic (复古麦克风)",
-      "Glitch Stutter (故障卡顿)", "Phase Flanging (相位镶边)"
-    ],
-    "过渡/结构 (Transitions)": [
-      "Beat Switch (节奏突变)", "Sudden Drop (突然下潜/静音)", 
-      "Hyperpop Glitch (故障音效切分)", "Tape Stop (磁带停止音效)", 
-      "Tempo Change (速度突变)", "Massive Bass Drop (重低音爆发)"
-    ],
-    "节奏/律动 (Rhythm/Groove)": [
-      "Syncopation (切分音)", "Swing (摇摆律动)", "Shuffle (洗牌律动)", 
-      "Four-on-the-floor (四四拍/动次打次)", "Polyrhythm (多重节奏)", 
-      "Half-time (减半节奏)", "Double-time (加倍节奏)", "Breakbeat (碎拍)",
-      "Downtempo (慢下拍)", "Off-beat (反拍)", "Syncopated Bass (切分贝斯)"
-    ],
-    "空间黑科技": [
-      "Binaural Panning (双声道人头录音/贴耳)", "Haas Effect (哈斯效应/极宽假立体声)"
-    ],
-    "调制/动态": [
-      "Stutter Effect (频闪/结巴切片效果)", "Phaser / Flanger Swirl (极度眩晕相位旋转)", "Radio EQ Sweeps (收音机频段扫频)"
-    ]
-  },
-  vibes: {
-    "情绪/情感 (Emotional)": [
-      "Aggressive (攻击性)", "Nostalgic (怀旧)", "Manic (狂躁)", "Melancholy (忧郁)", 
-      "Energetic (活力)", "Whimsical (怪诞/异想天开)", "Romantic (浪漫)", "Hopeful (充满希望)",
-      "Angst (焦虑)", "Euphoric (愉悦)", "Sentimental (感伤)", "Rebellious (叛逆)", "Peaceful (宁静)"
-    ],
-    "环境/空间 (Atmospheric)": [
-      "Ethereal (空灵)", "Haunting (萦绕/诡异)", "Dreamy (梦幻)", "Hypnotic (催眠)", 
-      "Dark (黑暗)", "Spacious (宽广)", "Claustrophobic (幽闭)", "Mysterious (神秘)",
-      "Industrial (工业感)", "Urban (都市感)", "Nature (自然感)", "Cosmic (宇宙感)",
-      "Liminal (阈限感)", "Sacred (神圣)"
-    ],
-    "抽象/实验 (Experimental)": [
-      "Experimental (实验性)", "Absurd (荒诞)", "Chaotic (混乱)", "Psychedelic (迷幻)", 
-      "Uncomfortable (不安)", "Surreal (超现实)", "Glitchy (故障感)", "Dissonant (不协和)",
-      "Abstract (抽象)", "Avant-garde (先锋)", "Occult (神秘学)", "Uncanny (怪诞/恐怖谷)"
-    ],
-    "风格/美学 (Aesthetic)": [
-      "Groovy (律动)", "Cybernetic (赛博)", "Kawaii (可爱)", "Apocalyptic (末世)", 
-      "Cinematic (电影感)", "Retro (复古)", "Futuristic (未来感)", "Minimalist (极简)",
-      "Epic (史诗)", "Vintage (复古)", "Gothic (哥特)", "Luxury (奢华感)", "Ritualistic (仪式感)"
-    ],
-    "网络美学 (Aesthetics)": [
-      "Y2K Aesthetic (千禧年风)", "Frutiger Aero (果味航空/清透异次元)", "Cottagecore (田园核心)", "Steampunk (蒸汽朋克)"
-    ],
-    "极致情感": [
-      "Nihilistic (极度虚无/厌世)", "Triumphant (史诗般凯旋感)", "Paranoia (偏执/被害妄想感)"
-    ]
+const HIP3_DEXES = ['xyz', 'flx', 'vntl', 'hyna', 'km', 'cash'];
+
+const ZH_NAMES = {
+  'CCI': '全息加密大盘指数',
+  'BTC': '比特币', 'ETH': '以太坊', 'SOL': '索拉纳', 'BNB': '币安币', 'DOGE': '狗狗币', 
+  'ORDI': '奥迪', 'WIF': '狗帽币', 'PEPE': '佩佩蛙', 'LINK': '链环', 'SUI': 'Sui', 
+  'APT': 'Aptos', 'ARB': 'Arbitrum', 'OP': 'Optimism',
+  'GOLD': '黄金', 'SILVER': '白银', 'COPPER': '铜', 'GAS': '天然气',
+  'WTIOIL': 'WTI原油', 'BRENTOIL': '布伦特原油', 'CL': 'WTI原油(旧码)',
+  'NDX': '纳斯达克100', 'S&P500': '标普500指数', 'USA500': '美国500', 
+  'DJI': '道琼斯指数', 'XYZ100': 'XYZ100指数', 'SPX': '标普500(旧码)', 'NQ': '纳斯达克(旧码)',
+  'RUT': '罗素2000', 'VIX': '恐慌指数',
+  'NVDA': '英伟达', 'AAPL': '苹果', 'MSFT': '微软', 'TSLA': '特斯拉', 'MSTR': '微策略', 
+  'COIN': 'Coinbase', 'AMZN': '亚马逊', 'GOOGL': '谷歌', 'META': 'Meta(脸书)', 
+  'CRCL': 'Circle(USDC母公司)', 'ARM': 'ARM控股', 'SMCI': '超微电脑', 'GME': '游戏驿站', 'AMC': 'AMC院线',
+  'EURUSD': '欧元/美元', 'USDJPY': '美元/日元', 'GBPUSD': '英镑/美元', 
+  'AUDUSD': '澳元/美元', 'USDCAD': '美元/加元', 'DXY': '美元指数'
+};
+
+let hlDictionary = {};
+let globalAssetList = [];
+let isGlobalDataLoaded = false;
+
+const initGlobalData = async () => {
+  if (isGlobalDataLoaded) return;
+  try {
+    fetch('https://api.binance.com/api/v3/exchangeInfo').then(res=>res.json()).then(data=>{
+      if(data && data.symbols) {
+        data.symbols.forEach(s => {
+          if(s.quoteAsset === 'USDT' && s.status === 'TRADING') {
+            const pure = s.symbol.replace('USDT', '');
+            globalAssetList.push({ id: s.symbol, name: s.symbol, zhName: ZH_NAMES[pure] || '', badge: '🌕 币安正规军' });
+          }
+        });
+      }
+    }).catch(()=>{});
+
+    const [metaRes, spotMetaRes] = await Promise.all([
+      fetch('https://api.hyperliquid.xyz/info', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: "meta" }) }).catch(()=>null),
+      fetch('https://api.hyperliquid.xyz/info', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: "spotMeta" }) }).catch(()=>null)
+    ]);
+
+    if (metaRes && metaRes.ok) {
+      const meta = await metaRes.json();
+      meta.universe.forEach(asset => {
+        const name = asset.name; 
+        hlDictionary[name.toUpperCase()] = name;
+        hlDictionary[`${name.toUpperCase()}USDT`] = name;
+        hlDictionary[`${name.toUpperCase()}USDC`] = name;
+        globalAssetList.push({ id: `HL:${name}`, name: name, zhName: ZH_NAMES[name.toUpperCase()] || '', badge: '🟣 HL 官方合约' });
+      });
+    }
+
+    if (spotMetaRes && spotMetaRes.ok) {
+      const spotMeta = await spotMetaRes.json();
+      spotMeta.universe.forEach(asset => {
+        const name = asset.name; 
+        const base = name.split('/')[0]; 
+        hlDictionary[base.toUpperCase()] = name;
+        hlDictionary[`${base.toUpperCase()}USDT`] = name;
+        hlDictionary[`${base.toUpperCase()}USDC`] = name;
+        hlDictionary[name.toUpperCase()] = name;
+        hlDictionary[name.toUpperCase().replace('/', '')] = name; 
+        globalAssetList.push({ id: `HL:${name}`, name: name, zhName: ZH_NAMES[base.toUpperCase()] || '', badge: '🟡 HL 官方现货' });
+      });
+    }
+    
+    const hip3Promises = HIP3_DEXES.map(dex =>
+      fetch('https://api.hyperliquid.xyz/info', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: "meta", dex }) })
+      .then(res => res.ok ? res.json().then(data => ({dex, data})) : null).catch(()=>null)
+    );
+    const hip3Results = await Promise.all(hip3Promises);
+    hip3Results.forEach(res => {
+      if (res && res.data && res.data.universe) {
+        res.data.universe.forEach(asset => {
+          const fullName = asset.name; 
+          hlDictionary[asset.name.toUpperCase()] = fullName; 
+          const pureName = asset.name.includes(':') ? asset.name.split(':')[1] : asset.name;
+          if (!hlDictionary[pureName.toUpperCase()]) {
+             hlDictionary[pureName.toUpperCase()] = fullName; 
+          }
+          globalAssetList.push({ id: `HL:${fullName}`, name: fullName, zhName: ZH_NAMES[pureName.toUpperCase()] || '', badge: `🟢 HL-${res.dex.toUpperCase()} 池` });
+        });
+      }
+    });
+
+    isGlobalDataLoaded = true;
+  } catch (err) {}
+};
+
+const safeFetch = async (url, retries = 3) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url);
+      if (res.status === 429 || res.status === 418) {
+        const retryAfter = res.headers.get('Retry-After') || 3;
+        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
+        continue;
+      }
+      if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+      return res;
+    } catch (e) {
+      if (i === retries - 1) throw e;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
   }
 };
 
-// 风格关联映射 (Smart Linkage)
-const styleAssociations = {
-  "Chinese Traditional Opera (京剧/戏曲)": { instruments: ["Jinghu (京胡)", "Gong (大锣)", "Paiban (拍板)", "Peking Opera Percussion (京剧打击乐)"] },
-  "Kunqu Opera (昆曲)": { instruments: ["Dizi (竹笛)", "Sheng (笙)", "Pipa (琵琶)"] },
-  "Qinqiang (秦腔)": { instruments: ["Banhu (板胡)", "Gong (大锣)"] },
-  "Guqin Music (古琴曲)": { instruments: ["Guqin (古琴)", "Xiao (箫)"], vibes: ["Peaceful (宁静)", "Ethereal (空灵)"] },
-  "Jiangnan Sizhu (江南丝竹)": { instruments: ["Erhu (二胡)", "Pipa (琵琶)", "Dizi (竹笛)", "Yangqin (扬琴)"] },
-  "Northwest Wind (西北风)": { instruments: ["Suona (唢呐)", "Tanggu (堂鼓)"], vibes: ["Aggressive (攻击性)", "Energetic (活力)"] },
-  "Hanmai (喊麦/MC)": { instruments: ["Synthesizer Arpeggios"], production: ["Autotune Heavy (重度自动修音)", "Sidechain (极端侧链)"] },
-  "Taoist Chant (道教音乐)": { instruments: ["Gong (大锣)", "Muyu (木鱼)", "Sheng (笙)"], vibes: ["Sacred (神圣)"] },
-  "Tibetan Throat Singing (藏式呼麦)": { instruments: ["Gong (大锣)", "Bone Flute (骨笛)"], vibes: ["Sacred (神圣)", "Hypnotic (催眠)"] },
-  "Mongolian Long Song (蒙古长调)": { instruments: ["Morin Khuur (马头琴)", "Throat Singing (呼麦)"], vibes: ["Spacious (宽广)"] },
-  "Kazakh Kui (哈萨克冬不拉奎)": { instruments: ["Dombra (冬不拉)"] },
-  "Hong Kong Disco (港风迪斯科)": { instruments: ["Synthesizer Arpeggios", "Drum Kit (架子鼓)"], production: ["Vintage Mic (复古麦克风)"], vibes: ["Retro (复古)", "Groovy (律动)"] },
-  "Enka (演歌)": { instruments: ["Shamisen (三味线)", "Orchestral (管弦乐)"], vibes: ["Sentimental (感伤)", "Nostalgic (怀旧)"] },
-  "Gagaku (雅乐)": { instruments: ["Sho (笙-日)", "Hichiriki (筚篥-日)", "Biwa (琵琶-日)"], vibes: ["Sacred (神圣)"] },
-  "Pansori (板索里/传统说唱)": { instruments: ["Janggu (长鼓)"], vibes: ["Dramatic (戏剧性)"] },
-  "Samul Nori (四物打击乐)": { instruments: ["Kkwaenggwari (小锣)", "Janggu (长鼓)"], vibes: ["Energetic (活力)"] },
-  "Bluegrass (蓝草音乐)": { instruments: ["Banjo (班卓琴)", "Acoustic Guitar (木吉他)", "Fiddle (小提琴)"] },
-  "Delta Blues (三角洲蓝调)": { instruments: ["Acoustic Guitar (木吉他)", "Harmonica (口琴)"], vibes: ["Melancholy (忧郁)"] },
-  "Techno (工业/科技舞曲)": { instruments: ["Roland TR-909 Kick", "Synthesizer Arpeggios"], production: ["Compression (压缩)"] },
-  "Bossa Nova (波萨诺瓦)": { instruments: ["Acoustic Guitar (木吉他)", "Piano (钢琴)"], vibes: ["Relaxed (放松)"] },
-  "Samba (桑巴)": { instruments: ["Berimbau (比林鲍)", "Cuica (摩擦鼓)", "Whistle (哨子)"], vibes: ["Energetic (活力)"] },
-  "Reggae (雷鬼)": { instruments: ["Bass Guitar (贝斯)", "Hammond B3 Organ (哈蒙德风琴)"], production: ["Delay (延迟)"], vibes: ["Relaxed (放松)"] },
-  "Dungeon Synth (地牢合成器)": { instruments: ["Synthesizer (合成器)", "Lo-fi Drums"], vibes: ["Dark (黑暗)", "Medieval (中世纪)"] }
+const hlFetchKlines = async (coin, interval, limit) => {
+  try {
+    const intervalMap = { '15m': 900000, '1h': 3600000, '4h': 14400000, '1d': 86400000 };
+    const startTime = Date.now() - limit * intervalMap[interval];
+    const res = await fetch('https://api.hyperliquid.xyz/info', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: "candleSnapshot", req: { coin, interval, startTime } }) });
+    if (!res.ok) return null; 
+    const data = await res.json();
+    if (!data || !Array.isArray(data) || data.length === 0) return null;
+    return data.map(k => [k.t, k.o, k.h, k.l, k.c, k.v, k.T, "0", 0, (parseFloat(k.v) * 0.5).toString(), "0", "0"]);
+  } catch (err) { return null; }
 };
 
-// 智能纠错匹配器
-const validateTags = (rawTags, dataset) => {
-  if (!Array.isArray(rawTags)) return [];
-  const validTags = Object.values(dataset).flat();
-  return rawTags.map(tag => {
-    if (validTags.includes(tag)) return tag;
-    const match = validTags.find(vt => 
-      vt.toLowerCase().startsWith(tag.toLowerCase()) || 
-      vt.toLowerCase().includes(tag.toLowerCase())
-    );
-    return match || null;
-  }).filter(t => t !== null);
+const getAssetCategory = (symbol) => {
+  const s = symbol.toUpperCase();
+  if (['NDX', 'SPX', 'S&P500', 'USA500', 'DJI', 'XYZ100', 'RUT', 'VIX', 'NVDA', 'AAPL', 'MSFT', 'TSLA', 'MSTR', 'COIN', 'AMZN', 'GOOGL', 'META', 'CRCL', 'ARM', 'SMCI', 'GME', 'AMC'].some(x => s.includes(x))) return 'equity';
+  if (['GOLD', 'SILVER', 'COPPER', 'GAS', 'WTIOIL', 'BRENTOIL', 'CL'].some(x => s.includes(x))) return 'commodity';
+  if (['EURUSD', 'USDJPY', 'GBPUSD', 'AUDUSD', 'USDCAD', 'DXY'].some(x => s.includes(x))) return 'forex';
+  return 'crypto';
 };
 
-// 辅助函数
-const findCategory = (dataset, item) => {
-  return Object.keys(dataset).find(key => dataset[key].includes(item));
+const fetchBenchmark = async (symbol, interval, limit) => {
+  if (symbol === 'BTCUSDT') {
+    const res = await safeFetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`);
+    if (res && res.ok) return await res.json();
+  } else {
+    return await hlFetchKlines(symbol, interval, limit);
+  }
+  return null;
 };
 
-// 拼装增强 Prompt 的函数
-const formatEnhancerPrompt = (recipe, coreIdea) => {
-    const techSpecs = [];
-    if (recipe.styles?.length) techSpecs.push(`[Style: ${recipe.styles.join(", ")}]`);
-    if (recipe.instruments?.length) techSpecs.push(`[Instruments: ${recipe.instruments.join(", ")}]`);
-    if (recipe.vocals?.length) techSpecs.push(`[Vocals: ${recipe.vocals.join(", ")}]`);
-    if (recipe.production?.length) techSpecs.push(`[Production: ${recipe.production.join(", ")}]`);
-    if (recipe.vibes?.length) techSpecs.push(`[Vibe: ${recipe.vibes.join(", ")}]`);
-    return `${techSpecs.join("\n")}\n\n${coreIdea}`;
+// ==========================================
+// 🧮 核心数学与统计工具库
+// ==========================================
+const calculateEMA = (data, period) => {
+  if (!data || data.length === 0) return [0];
+  const k = 2 / (period + 1);
+  let emaArray = [data[0]];
+  for (let i = 1; i < data.length; i++) emaArray.push(data[i] * k + emaArray[i - 1] * (1 - k));
+  return emaArray;
 };
 
-const CompactTagGroup = ({ items = [], selected, onToggle, colorClass, borderColor, textColor, locked }) => (
-  <div className="flex flex-wrap gap-2">
-    {items.map(item => {
-      const isSelected = selected.includes(item);
-      return (
-        <button key={item} onClick={() => onToggle(item)} className={`px-2.5 py-1.5 md:px-4 md:py-2 rounded-full text-xs md:text-sm 2xl:text-base font-medium transition-all duration-200 border flex items-center gap-1 ${isSelected ? `${colorClass} text-white border-transparent shadow-md scale-105` : `bg-slate-800 ${borderColor} ${textColor} hover:bg-slate-700 hover:border-slate-600`}`}>{isSelected && locked && <Lock size={10} className="text-white/70" />}{item}</button>
-      )
-    })}
-  </div>
-);
+const calculateATR = (highs, lows, closes, period = 14) => {
+  const trs = [];
+  for (let i = 1; i < closes.length; i++) {
+    const h = highs[i], l = lows[i], pc = closes[i - 1];
+    trs.push(Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc)));
+  }
+  let atr = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const atrs = [atr];
+  for (let i = period; i < trs.length; i++) {
+    atr = (atr * (period - 1) + trs[i]) / period; 
+    atrs.push(atr);
+  }
+  return atrs;
+};
 
-const TinyTag = ({ label, color, onRemove }) => (
-  <button onClick={onRemove} className={`flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 rounded bg-slate-900 border ${color} text-[10px] md:text-xs xl:text-sm hover:bg-red-900/30 hover:border-red-500/30 hover:text-red-300 transition-colors group`}><span className="truncate max-w-[100px] md:max-w-[140px]">{label}</span><X size={8} className="group-hover:text-red-400"/></button>
-);
+const calculateWMA = (data, period) => {
+  let wmaArray = new Array(data.length).fill(0);
+  if (data.length < period || period <= 0) return wmaArray;
+  const denominator = (period * (period + 1)) / 2;
+  for (let i = period - 1; i < data.length; i++) {
+    let sum = 0;
+    for (let j = 0; j < period; j++) sum += data[i - j] * (period - j);
+    wmaArray[i] = sum / denominator;
+  }
+  return wmaArray;
+};
 
-const App = () => {
+const calculateHMA = (data, period) => {
+  if (data.length < period || period <= 0) return new Array(data.length).fill(0);
+  const halfPeriod = Math.floor(period / 2);
+  const sqrtPeriod = Math.floor(Math.sqrt(period));
+  const wmaHalf = calculateWMA(data, halfPeriod);
+  const wmaFull = calculateWMA(data, period);
+  const rawHMA = data.map((_, i) => (2 * wmaHalf[i]) - wmaFull[i]);
+  return calculateWMA(rawHMA, sqrtPeriod);
+};
 
-  // ==========================================
-  // === 🚨 安全防御层 (Anti-theft & Security) ===
-  // ==========================================
-  
-  useEffect(() => {
-      // --- 1. 域名白名单绑定 (Domain Binding) ---
-      const allowedDomains = ['xcmm.org', 'www.xcmm.org', 'localhost', '127.0.0.1'];
-      const currentDomain = window.location.hostname;
+const calculateALMA = (data, period, offset = 0.85, sigma = 6) => {
+  let almaArray = new Array(data.length).fill(0);
+  if (data.length < period || period <= 0) return almaArray;
+  const m = offset * (period - 1);
+  const s = period / sigma;
+  let weights = [];
+  let weightSum = 0;
+  for (let i = 0; i < period; i++) {
+    const w = Math.exp(-Math.pow(i - m, 2) / (2 * s * s));
+    weights.push(w);
+    weightSum += w;
+  }
+  for (let i = period - 1; i < data.length; i++) {
+    let sum = 0;
+    for (let j = 0; j < period; j++) sum += data[i - period + 1 + j] * weights[j]; 
+    almaArray[i] = sum / weightSum;
+  }
+  return almaArray;
+};
+
+const calculateStdDev = (arr) => {
+  const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+  const variance = arr.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / arr.length;
+  return { mean, stdDev: Math.sqrt(variance) };
+};
+
+const calculateCorrelation = (x, y) => {
+  if (x.length !== y.length || x.length === 0) return 0;
+  const n = x.length;
+  const sumX = x.reduce((a, b) => a + b, 0);
+  const sumY = y.reduce((a, b) => a + b, 0);
+  const sumXY = x.reduce((a, b, i) => a + b * y[i], 0);
+  const sumX2 = x.reduce((a, b) => a + b * b, 0);
+  const sumY2 = y.reduce((a, b) => a + b * b, 0);
+  const numerator = (n * sumXY) - (sumX * sumY);
+  const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+  if (denominator === 0) return 0;
+  return numerator / denominator;
+};
+
+const calculateHurst = (closes, period = 50) => {
+  if (closes.length < period) return 0.5;
+  const slice = closes.slice(-period);
+  const mean = slice.reduce((a, b) => a + b, 0) / period;
+  let maxDev = -Infinity, minDev = Infinity, devSum = 0, devSqSum = 0;
+  for (let i = 0; i < period; i++) {
+    devSum += (slice[i] - mean);
+    if (devSum > maxDev) maxDev = devSum;
+    if (devSum < minDev) minDev = devSum;
+    devSqSum += Math.pow(slice[i] - mean, 2);
+  }
+  const R = Math.max(maxDev - minDev, 0.0001);
+  const S = Math.max(Math.sqrt(devSqSum / period), 0.0001);
+  return Math.log(R / S) / Math.log(period);
+};
+
+const runMonteCarlo = (startPrice, target, stopLoss, historicalReturns, dailyVol, sims = 2000, days = 50, direction = 'long', drift = 0, volScale = 1) => {
+  let hitsTarget = 0, hitsStop = 0, totalTargetSteps = 0; 
+  const retLen = historicalReturns.length;
+  if (retLen === 0) return { targetProb: '0.0', stopProb: '0.0', exhaustProb: '100.0', stepVol: '0.00', steps: days, avgTargetSteps: days };
+
+  for (let i = 0; i < sims; i++) {
+    let p = startPrice;
+    for (let d = 0; d < days; d++) {
+      const randIdx = Math.floor(Math.random() * retLen);
+      const simulatedReturn = historicalReturns[randIdx] * volScale + drift;
+      p = p * (1 + simulatedReturn);
       
-      // Canvas 预览环境豁免
-      const isCanvasPreview = true; 
-
-      if (!allowedDomains.includes(currentDomain) && !isCanvasPreview) {
-          // 彻底销毁页面 DOM
-          document.body.innerHTML = `
-            <div style="background:#0a0a0a;color:#ff3333;height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:sans-serif;">
-                <h1 style="font-size:32px;font-weight:900;">⛔ 未授权的运行环境</h1>
-                <p style="color:#888;margin-top:10px;">Security Violation: Invalid Hostname [${currentDomain}]</p>
-                <p style="color:#666;font-size:12px;margin-top:20px;">星辰妙漫 xcmm.org 专属授权</p>
-            </div>`;
-          return; 
-      }
-      return () => {};
-  }, []);
-  // ==========================================
-
-  // === 授权与商业化状态 (植入逻辑) ===
-  const [user, setUser] = useState(null);
-  const [deviceId, setDeviceId] = useState("");
-  const [credits, setCredits] = useState(() => parseInt(localStorage.getItem('gemini_credits') || '3'));
-  const [isPro, setIsPro] = useState(() => localStorage.getItem('gemini_is_pro') === 'true');
-  const [showPaywall, setShowPaywall] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [pendingAction, setPendingAction] = useState(null); 
-  const [authEmail, setAuthEmail] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const [isLoginMode, setIsLoginMode] = useState(true);
-  const [authLoading, setAuthLoading] = useState(false);
-  const [redeemCode, setRedeemCode] = useState("");
-  const [isRedeeming, setIsRedeeming] = useState(false);
-
-  // === API 设置相关的本地化状态 ===
-  const [userApiKey, setUserApiKey] = useState(() => localStorage.getItem('gemini_api_key') || "");
-  const [apiBaseUrl, setApiBaseUrl] = useState(() => localStorage.getItem('gemini_api_url') || "https://generativelanguage.googleapis.com");
-  const [apiModel, setApiModel] = useState(() => localStorage.getItem('gemini_api_model') || "gemini-2.5-flash"); 
-  const [apiProvider, setApiProvider] = useState(() => localStorage.getItem('xcmm_api_provider') || "gemini");
-
-  const [showSettings, setShowSettings] = useState(false);
-  const [tempApiKey, setTempApiKey] = useState("");
-  const [tempApiUrl, setTempApiUrl] = useState("");
-  const [tempApiModel, setTempApiModel] = useState("");
-  const [tempApiProvider, setTempApiProvider] = useState("");
-
-  const [isTestingApi, setIsTestingApi] = useState(false);
-  const [apiTestStatus, setApiTestStatus] = useState(null);
-  const [apiTestMessage, setApiTestMessage] = useState("");
-
-  const openSettings = () => {
-      setTempApiKey(userApiKey);
-      setTempApiUrl(apiBaseUrl);
-      setTempApiModel(apiModel);
-      setTempApiProvider(apiProvider);
-      setApiTestStatus(null);
-      setApiTestMessage("");
-      setShowSettings(true);
-  };
-
-  const handleProviderSwitch = (provider) => {
-      setTempApiProvider(provider);
-      setApiTestStatus(null);
-      setApiTestMessage("");
-      if (provider === 'qwen') {
-          setTempApiUrl("https://dashscope.aliyuncs.com/compatible-mode/v1");
-          setTempApiModel("qwen-plus");
+      if (direction === 'long') {
+        if (p >= target) { hitsTarget++; totalTargetSteps += (d + 1); break; }
+        if (p <= stopLoss) { hitsStop++; break; }
       } else {
-          setTempApiUrl("https://generativelanguage.googleapis.com");
-          setTempApiModel("gemini-2.5-flash");
+        if (p <= target) { hitsTarget++; totalTargetSteps += (d + 1); break; }
+        if (p >= stopLoss) { hitsStop++; break; }
       }
-  };
-
-  const testApiConnection = async () => {
-      if (!tempApiKey.trim()) {
-          setApiTestStatus('error');
-          setApiTestMessage("请输入 API Key 进行测试");
-          return;
-      }
-      setIsTestingApi(true);
-      setApiTestStatus(null);
-      setApiTestMessage("");
-
-      let url, options;
-      const testPrompt = "Hello"; 
-
-      if (tempApiProvider === 'qwen') {
-          const baseUrl = tempApiUrl || "https://dashscope.aliyuncs.com/compatible-mode/v1";
-          url = `${baseUrl}/chat/completions`;
-          options = {
-              method: 'POST',
-              headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${tempApiKey.trim()}`
-              },
-              body: JSON.stringify({
-                  model: tempApiModel || "qwen-plus",
-                  messages: [{ role: "user", content: testPrompt }]
-              })
-          };
-      } else {
-          const baseUrl = tempApiUrl || "https://generativelanguage.googleapis.com";
-          const cleanUrl = baseUrl.trim().endsWith('/') ? baseUrl.trim().slice(0, -1) : baseUrl.trim();
-          url = `${cleanUrl}/v1beta/models/${tempApiModel || 'gemini-2.5-flash'}:generateContent?key=${tempApiKey.trim()}`;
-          options = {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ contents: [{ parts: [{ text: testPrompt }] }] })
-          };
-      }
-
-      try {
-          const response = await fetch(url, options);
-          if (!response.ok) {
-              const errData = await response.json().catch(() => ({}));
-              throw new Error(errData.error?.message || errData.message || `HTTP ${response.status}`);
-          }
-          setApiTestStatus('success');
-          setApiTestMessage("连通性测试通过！API 配置有效。");
-      } catch (error) {
-          setApiTestStatus('error');
-          setApiTestMessage(`连通性测试失败: ${error.message}`);
-      } finally {
-          setIsTestingApi(false);
-      }
-  };
-
-  const saveSettings = () => {
-      const cleanUrl = tempApiUrl.trim().endsWith('/') ? tempApiUrl.trim().slice(0, -1) : tempApiUrl.trim();
-      const cleanModel = tempApiModel.trim() || (tempApiProvider === 'qwen' ? "qwen-plus" : "gemini-2.5-flash"); 
-      setUserApiKey(tempApiKey.trim());
-      setApiBaseUrl(cleanUrl);
-      setApiModel(cleanModel);
-      setApiProvider(tempApiProvider);
-      localStorage.setItem('gemini_api_key', tempApiKey.trim());
-      localStorage.setItem('gemini_api_url', cleanUrl);
-      localStorage.setItem('gemini_api_model', cleanModel);
-      localStorage.setItem('xcmm_api_provider', tempApiProvider);
-      setShowSettings(false);
-      setToastMessage("API 配置已保存到本地缓存");
-      setTimeout(() => setToastMessage(""), 3000);
-  };
-
-  const callAI = async (prompt) => {
-      let url, options;
-      if (apiProvider === 'qwen') {
-          const baseUrl = apiBaseUrl || "https://dashscope.aliyuncs.com/compatible-mode/v1";
-          url = `${baseUrl}/chat/completions`;
-          options = {
-              method: 'POST',
-              headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${userApiKey}`
-              },
-              body: JSON.stringify({
-                  model: apiModel || "qwen-plus",
-                  messages: [{ role: "user", content: prompt }]
-              })
-          };
-      } else {
-          const baseUrl = apiBaseUrl || "https://generativelanguage.googleapis.com";
-          url = `${baseUrl}/v1beta/models/${apiModel || 'gemini-2.5-flash'}:generateContent?key=${userApiKey}`;
-          options = {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-          };
-      }
-
-      const response = await fetch(url, options);
-      if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.error?.message || errData.message || `API Error (HTTP ${response.status})`);
-      }
-      const result = await response.json();
-      
-      if (apiProvider === 'qwen') {
-          return result.choices?.[0]?.message?.content || "";
-      } else {
-          return result.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      }
-  };
-
-  const checkApiConfig = () => {
-      if (!userApiKey) {
-          openSettings();
-          setToastMessage("使用 AI 功能前，请先配置您的 API Key");
-          setTimeout(() => setToastMessage(""), 3000);
-          return false;
-      }
-      return true;
-  };
-
-  // 状态管理
-  const [selectedStyles, setSelectedStyles] = useState([]);
-  const [selectedInstruments, setSelectedInstruments] = useState([]);
-  const [selectedVocals, setSelectedVocals] = useState([]);
-  const [selectedProduction, setSelectedProduction] = useState([]);
-  const [selectedVibes, setSelectedVibes] = useState([]);
-  
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [isSmartMixing, setIsSmartMixing] = useState(false); 
-  const [copySuccess, setCopySuccess] = useState(false);
-  const [toastMessage, setToastMessage] = useState("");
-  const [isBaseLocked, setIsBaseLocked] = useState(false); 
-  const [isChinaLocked, setIsChinaLocked] = useState(false); 
-  
-  // 科学控制变量
-  const [tempo, setTempo] = useState("Auto"); 
-  const [fusionStrategy, setFusionStrategy] = useState("Balanced (平衡)"); 
-  const [isStrategyLinked, setIsStrategyLinked] = useState(false); 
-  
-  // 页面缩放控制 (zoomLevel)
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const handleZoomIn = () => setZoomLevel(prev => Math.min(prev + 0.1, 1.5));
-  const handleZoomOut = () => setZoomLevel(prev => Math.max(prev - 0.1, 0.75));
-  const handleResetZoom = () => setZoomLevel(1);
-
-  // 智能关联开关
-  const [isSmartLinkageEnabled, setIsSmartLinkageEnabled] = useState(true);
-  
-  // 悬停提示状态
-  const [hoveredStrategyDesc, setHoveredStrategyDesc] = useState("");
-  
-  // 最终生成的 Prompt 文本
-  const [finalPrompt, setFinalPrompt] = useState(""); 
-  const [isSynthesizing, setIsSynthesizing] = useState(false);
-
-  // AI 炼金面板相关状态
-  const [isAiPanelOpen, setIsAiPanelOpen] = useState(false); 
-  const [aiPrompt, setAiPrompt] = useState("");
-  const [isAiGenerating, setIsAiGenerating] = useState(false);
-  const [aiError, setAiError] = useState("");
-  const [aiRecipes, setAiRecipes] = useState(null); 
-
-  // AI 分析相关状态
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState("");
-  const [analysisError, setAnalysisError] = useState("");
-
-  // 区域/分类控制状态
-  const [activeStyleRegion, setActiveStyleRegion] = useState('中国'); 
-  const [activeInstrumentCategory, setActiveInstrumentCategory] = useState('CN中华/东方乐器');
-  const [activeVocalCategory, setActiveVocalCategory] = useState('音色特质 (Tone)');
-  const [activeProductionCategory, setActiveProductionCategory] = useState('听感/质感 (Texture)');
-  const [activeVibeCategory, setActiveVibeCategory] = useState('情绪/情感 (Emotional)');
-  
-  const [aiMode, setAiMode] = useState('inspiration');
-  const [showLyricsModal, setShowLyricsModal] = useState(null);
-
-  // 歌词模式下的企划大纲状态
-  const [aiIntent, setAiIntent] = useState("");
-  const [aiBlueprint, setAiBlueprint] = useState("");
-  const [isGeneratingBlueprint, setIsGeneratingBlueprint] = useState(false);
-  const [showBlueprintArea, setShowBlueprintArea] = useState(false);
-  
-  // 新增：MIXX POP 极限过载控制台 (8个独立开关 - 八门遁甲)
-  const [mixxPopBpm, setMixxPopBpm] = useState(false);
-  const [mixxPopVocal, setMixxPopVocal] = useState(false);
-  const [mixxPopDrop, setMixxPopDrop] = useState(false);
-  const [mixxPopInst, setMixxPopInst] = useState(false);
-  const [mixxPopSyllable, setMixxPopSyllable] = useState(false);
-  const [mixxPopAntiDrop, setMixxPopAntiDrop] = useState(false);
-  const [mixxPopFoley, setMixxPopFoley] = useState(false);
-  const [mixxPopPersona, setMixxPopPersona] = useState(false);
-
-  // 新增：深度排版单首歌词的 Loading 状态
-  const [isGeneratingLyricsIndex, setIsGeneratingLyricsIndex] = useState(null);
-  
-  // 新增：生成分享长图的 Loading 状态
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
-
-  const checkRegionHasSelection = (region) => data.styles[region] ? data.styles[region].some(style => selectedStyles.includes(style)) : false;
-  const checkInstrumentCategoryHasSelection = (category) => data.instruments[category] ? data.instruments[category].some(inst => selectedInstruments.includes(inst)) : false;
-  const checkVocalCategoryHasSelection = (category) => data.vocals[category] ? data.vocals[category].some(v => selectedVocals.includes(v)) : false;
-  const checkProductionCategoryHasSelection = (category) => data.production[category] ? data.production[category].some(prod => selectedProduction.includes(prod)) : false;
-  const checkVibeCategoryHasSelection = (category) => data.vibes[category] ? data.vibes[category].some(v => selectedVibes.includes(v)) : false;
-
-  const revokePro = (msg) => {
-      setIsPro(false);
-      localStorage.removeItem('gemini_is_pro');
-      localStorage.removeItem('xcmm_active_code');
-      setToastMessage(`🚫 ${msg}`);
-      setTimeout(() => setToastMessage(""), 5000);
-  };
-
-  useEffect(() => {
-      const initAuth = async () => {
-          if (firebaseApp && auth) {
-              if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                  await signInWithCustomToken(auth, __initial_auth_token).catch(console.error);
-              } else {
-                  // 【修复竞态条件 Bug】：等待 Firebase 从本地 IndexedDB 读取并恢复原有的登录状态
-                  if (auth.authStateReady) {
-                      await auth.authStateReady();
-                  } else {
-                      // 兼容极老版本 Firebase SDK 的后备方案
-                      await new Promise(resolve => {
-                          const unsub = onAuthStateChanged(auth, () => {
-                              resolve();
-                              unsub();
-                          });
-                      });
-                  }
-                  
-                  // 只有当完全确认恢复后，当前仍然没有任何账号时，才强行分配一个游客身份
-                  if (!auth.currentUser) {
-                      await signInAnonymously(auth).catch(console.error);
-                  }
-              }
-          }
-      };
-      initAuth();
-      const unsubscribe = auth ? onAuthStateChanged(auth, setUser) : null;
-
-      const setupDevice = async () => {
-          let sid = localStorage.getItem('xcmm_device_id');
-          if (!sid) {
-              try {
-                  const fpPromise = new Promise((resolve, reject) => {
-                      if (window.FingerprintJS) {
-                          resolve(window.FingerprintJS);
-                      } else {
-                          const script = document.createElement('script');
-                          script.src = 'https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@4/dist/fp.min.js';
-                          script.onload = () => resolve(window.FingerprintJS);
-                          script.onerror = reject;
-                          document.head.appendChild(script);
-                      }
-                  });
-                  const FingerprintJS = await fpPromise;
-                  const fp = await FingerprintJS.load();
-                  const result = await fp.get();
-                  sid = result.visitorId.substring(0, 8).toUpperCase();
-              } catch (e) {
-                  console.warn("FingerprintJS 获取失败，降级为随机生成", e);
-                  sid = Math.random().toString(36).substring(2, 10).toUpperCase();
-              }
-              localStorage.setItem('xcmm_device_id', sid);
-          }
-          setDeviceId(sid);
-      };
-      
-      setupDevice();
-      generateRandomMix(); 
-      return () => unsubscribe && unsubscribe();
-  }, []);
-
-  useEffect(() => {
-      const verifyAndRestoreProStatus = async () => {
-          if (!db || !user || !deviceId) return; 
-          
-          let currentIsPro = localStorage.getItem('gemini_is_pro') === 'true';
-          let savedCode = localStorage.getItem('xcmm_active_code');
-
-          if (!user.isAnonymous) {
-              try {
-                  const profileSnap = await getDoc(doc(db, 'artifacts', typeof __app_id !== 'undefined' ? __app_id : PRIVATE_APP_ID, 'users', user.uid, 'account', 'profile'));
-                  if (profileSnap.exists()) {
-                      const profileData = profileSnap.data();
-
-                      if (profileData.deviceId && profileData.deviceId !== deviceId) {
-                          revokePro("您的账号已在其他设备登录，本地授权已下线！");
-                          signOut(auth).then(() => signInAnonymously(auth)).catch(console.error);
-                          return; 
-                      }
-
-                      if (profileData.activeCode && !savedCode) {
-                          savedCode = profileData.activeCode;
-                          currentIsPro = true; 
-                      }
-                  }
-              } catch (e) {
-                  console.warn("拉取用户私有配置失败", e);
-              }
-          }
-
-          if (currentIsPro) {
-              if (!savedCode) {
-                  revokePro("由于系统安全升级，请重新输入您的激活码。");
-                  return;
-              }
-              try {
-                  const snap = await getDoc(doc(db, 'artifacts', typeof __app_id !== 'undefined' ? __app_id : PRIVATE_APP_ID, 'public', 'data', 'activations', savedCode));
-                  if (!snap.exists()) {
-                      revokePro("您的授权码在云端不存在，权限已被收回！");
-                  } else {
-                      const d = snap.data();
-                      if (d.status !== 'active') {
-                          revokePro("您的授权码已被停用，权限已被收回！");
-                      } else if (d.userId && d.userId !== user.uid) {
-                          revokePro("该授权码已绑定其他云端账号，权限已被收回！请确保您登录了正确的账号。");
-                      } else if (!d.userId && d.deviceId && d.deviceId !== deviceId) {
-                          revokePro("设备标识异常，为保护账号安全，权限已被收回！");
-                      } else {
-                          setIsPro(true);
-                          localStorage.setItem('gemini_is_pro', 'true');
-                          localStorage.setItem('xcmm_active_code', savedCode);
-                      }
-                  }
-              } catch (e) {
-                  console.warn("云端查岗网络波动，暂不剥夺权限", e);
-              }
-          }
-      };
-      verifyAndRestoreProStatus();
-  }, [user, deviceId]);
-
-  const handleOpenPaywall = () => {
-      if (!user || user.isAnonymous) {
-          setPendingAction('paywall');
-          setShowAuthModal(true);
-          setToastMessage("🔒 永久授权需绑定至云端，请先登录或注册账号");
-          setTimeout(() => setToastMessage(""), 4000);
-      } else {
-          setShowPaywall(true);
-      }
-  };
-
-  const consumeCredit = () => {
-      if (isPro) return true;
-      if (credits > 0) {
-          const next = credits - 1;
-          setCredits(next);
-          localStorage.setItem('gemini_credits', next.toString());
-          return true;
-      }
-      handleOpenPaywall(); 
-      return false;
-  };
-
-  const handleRedeemCode = async (code) => {
-      const cleanCode = code.trim().toUpperCase();
-      if (!cleanCode || !db || !user) {
-          setToastMessage("⏳ 正在尝试安全连接云端...");
-          setTimeout(() => setToastMessage(""), 2000);
-          return;
-      }
-
-      if (user.isAnonymous) {
-          setShowPaywall(false);
-          setShowAuthModal(true);
-          setToastMessage("🔒 请先注册或登录账号，以永久绑定该设备的授权");
-          setTimeout(() => setToastMessage(""), 4000);
-          return;
-      }
-
-      setIsRedeeming(true);
-      try {
-          const targetAppId = typeof __app_id !== 'undefined' ? __app_id : PRIVATE_APP_ID;
-          const snap = await getDoc(doc(db, 'artifacts', targetAppId, 'public', 'data', 'activations', cleanCode));
-          if (!snap.exists()) throw new Error("凭证码无效，请检查是否有拼写错误");
-          
-          const activationData = snap.data();
-          if (activationData.status !== 'active') throw new Error("该凭证码已失效或被停用");
-          
-          if (activationData.userId && activationData.userId !== user.uid) {
-              throw new Error("该凭证已绑定其他云端账号，请重新获取");
-          }
-          if (!activationData.userId && activationData.deviceId && activationData.deviceId !== deviceId) {
-              throw new Error("该凭证已绑定其它设备，请重新获取");
-          }
-
-          try {
-              await setDoc(doc(db, 'artifacts', targetAppId, 'public', 'data', 'activations', cleanCode), {
-                  ...activationData,
-                  userId: user.uid,
-                  boundAt: new Date().toISOString()
-              }, { merge: true });
-
-              await setDoc(doc(db, 'artifacts', targetAppId, 'users', user.uid, 'account', 'profile'), {
-                  activeCode: cleanCode,
-                  deviceId: deviceId, 
-                  updatedAt: new Date().toISOString()
-              }, { merge: true });
-
-          } catch (updateErr) {
-              console.warn("更新云端绑定状态失败，但验证通过，依然放行本地", updateErr);
-          }
-          
-          setIsPro(true);
-          localStorage.setItem('gemini_is_pro', 'true');
-          localStorage.setItem('xcmm_active_code', cleanCode); 
-          setShowPaywall(false);
-          setToastMessage("🎉 感谢您的捐赠！PRO 终身授权已永久绑定至您的账号。");
-          setTimeout(() => setToastMessage(""), 4000);
-      } catch (err) {
-          setToastMessage(`❌ ${err.message}`);
-          setTimeout(() => setToastMessage(""), 3000);
-      } finally {
-          setIsRedeeming(false);
-      }
-  };
-
-  const handleAuthSubmit = async (e) => {
-      e.preventDefault();
-      if (!authEmail || !authPassword) {
-          setToastMessage("请输入邮箱和密码");
-          setTimeout(() => setToastMessage(""), 3000);
-          return;
-      }
-      setAuthLoading(true);
-      try {
-          let userCredential;
-          if (isLoginMode) {
-              userCredential = await signInWithEmailAndPassword(auth, authEmail, authPassword);
-              setToastMessage("✅ 登录成功！您的跨设备授权已就绪。");
-          } else {
-              userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
-              setToastMessage("✅ 注册成功并已自动登录！");
-          }
-          setShowAuthModal(false);
-          setAuthEmail("");
-          setAuthPassword("");
-
-          if (userCredential && userCredential.user) {
-              const targetAppId = typeof __app_id !== 'undefined' ? __app_id : PRIVATE_APP_ID;
-              await setDoc(doc(db, 'artifacts', targetAppId, 'users', userCredential.user.uid, 'account', 'profile'), {
-                  deviceId: deviceId, 
-                  updatedAt: new Date().toISOString()
-              }, { merge: true }).catch(err => console.warn("宣示设备主权失败", err));
-          }
-
-          if (pendingAction === 'paywall') {
-              setTimeout(() => {
-                  setShowPaywall(true);
-              }, 500);
-              setPendingAction(null);
-          }
-
-      } catch (err) {
-          setToastMessage(`❌ 认证失败: ${err.message}`);
-      } finally {
-          setAuthLoading(false);
-          setTimeout(() => setToastMessage(""), 3000);
-      }
-  };
-
-  const handleLogout = async () => {
-      try {
-          await signOut(auth);
-          setIsPro(false);
-          localStorage.removeItem('gemini_is_pro');
-          localStorage.removeItem('xcmm_active_code');
-          setToastMessage("✅ 已安全登出，本地授权已退出");
-          setTimeout(() => setToastMessage(""), 3000);
-          
-          await signInAnonymously(auth);
-      } catch (e) {
-          console.error(e);
-      }
-  };
-
-  // 新增：为长图分享专门定制的歌词高亮正则解析
-  const getHighlightedLyrics = (text) => {
-      if(typeof text !== 'string') return { __html: '' };
-      let html = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      // 将 [Chorus] 这种结构词高亮成赛博蓝
-      html = html.replace(/(\[.*?\])/g, '<span style="color: #38bdf8; font-weight: bold; background: rgba(56, 189, 248, 0.1); padding: 2px 4px; border-radius: 4px;">$1</span>');
-      // 将 (Foley sound) 这种效果指令高亮成荧光紫
-      html = html.replace(/(\(.*?\))/g, '<span style="color: #d946ef; font-style: italic;">$1</span>');
-      return { __html: html };
-  };
-
-  // 新增：生成高清企划海报的功能
-  const generateShareImage = async () => {
-      setIsGeneratingImage(true);
-      setToastMessage("📸 正在渲染高清长图...");
-      try {
-          // 动态加载 html2canvas 库
-          if (!window.html2canvas) {
-              await new Promise((resolve, reject) => {
-                  const script = document.createElement('script');
-                  script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
-                  script.onload = resolve;
-                  script.onerror = reject;
-                  document.head.appendChild(script);
-              });
-          }
-          
-          const element = document.getElementById('share-image-node');
-          if (element) {
-              const canvas = await window.html2canvas(element, {
-                  scale: 2, // 2倍超清抗锯齿
-                  backgroundColor: '#020617', // 深邃暗黑底色
-                  useCORS: true,
-                  logging: false
-              });
-              
-              const image = canvas.toDataURL('image/png', 1.0);
-              const link = document.createElement('a');
-              link.download = `星辰妙漫_AI企划案_${new Date().getTime()}.png`;
-              link.href = image;
-              link.click();
-              
-              setToastMessage("🎉 长图已保存到本地！快去炫耀吧！");
-          }
-      } catch (err) {
-          setToastMessage(`❌ 长图生成失败: ${err.message}`);
-      } finally {
-          setIsGeneratingImage(false);
-          setTimeout(() => setToastMessage(""), 4000);
-      }
-  };
-
-  const copyToClipboard = (textToCopy) => {
-    const text = typeof textToCopy === 'string' ? textToCopy : getFormattedIngredients().join(", ");
-    if (!text || text.startsWith("请选择")) return;
-
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    textArea.style.position = "fixed";
-    textArea.style.left = "-9999px";
-    textArea.style.top = "0";
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
-
-    try {
-      document.execCommand('copy');
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 2000);
-    } catch (err) {
-      console.error('Copy failed', err);
     }
-    
-    document.body.removeChild(textArea);
+  }
+  return {
+    targetProb: ((hitsTarget / sims) * 100).toFixed(1),
+    stopProb: ((hitsStop / sims) * 100).toFixed(1),
+    exhaustProb: (((sims - hitsTarget - hitsStop) / sims) * 100).toFixed(1),
+    stepVol: (dailyVol * 100).toFixed(2),
+    steps: days,
+    avgTargetSteps: hitsTarget > 0 ? (totalTargetSteps / hitsTarget) : days 
   };
+};
 
-  const applyAutoMix = (styles, instruments, vocals, production, vibes, keepLockedStyles = false, allowCustomTags = false) => {
-    let finalStyles = [];
-    if (keepLockedStyles && selectedStyles.length > 0) {
-      finalStyles = selectedStyles; 
+const calculateLiquidationClusters = (data) => {
+  if (!data || data.length < 50) return [];
+  let bins = {};
+  let recent = data.slice(-150); 
+  let maxV = Math.max(...recent.map(d => parseFloat(d[5] || d.volume)), 0.0001);
+  
+  for (let i = 2; i < recent.length - 2; i++) {
+     let d = recent[i];
+     let high = parseFloat(d.high || d[2]); let low = parseFloat(d.low || d[3]); let vol = parseFloat(d.volume || d[5]);
+     let prev1High = parseFloat(recent[i-1].high || recent[i-1][2]); let prev2High = parseFloat(recent[i-2].high || recent[i-2][2]);
+     let next1High = parseFloat(recent[i+1].high || recent[i+1][2]); let next2High = parseFloat(recent[i+2].high || recent[i+2][2]);
+     let prev1Low = parseFloat(recent[i-1].low || recent[i-1][3]); let prev2Low = parseFloat(recent[i-2].low || recent[i-2][3]);
+     let next1Low = parseFloat(recent[i+1].low || recent[i+1][3]); let next2Low = parseFloat(recent[i+2].low || recent[i+2][3]);
+
+     let isSwingHigh = high > prev1High && high > prev2High && high > next1High && high > next2High;
+     let isSwingLow = low < prev1Low && low < prev2Low && low < next1Low && low < next2Low;
+
+     if (isSwingHigh) {
+        let p100 = (high * 1.01).toFixed(4); let p50 = (high * 1.02).toFixed(4);  
+        bins[p100] = (bins[p100] || 0) + (vol/maxV) * 2; bins[p50] = (bins[p50] || 0) + (vol/maxV);
+     }
+     if (isSwingLow) {
+        let p100 = (low * 0.99).toFixed(4); let p50 = (low * 0.98).toFixed(4);  
+        bins[p100] = (bins[p100] || 0) + (vol/maxV) * 2; bins[p50] = (bins[p50] || 0) + (vol/maxV);
+     }
+  }
+  let sorted = Object.entries(bins).map(([price, weight]) => ({ price: parseFloat(price), weight })).sort((a,b) => b.weight - a.weight);
+  return sorted.slice(0, 5); 
+};
+
+const buildCompositeIndex = (results) => {
+  const validResults = results.filter(r => r.rawData && r.rawData.length > 0);
+  if (validResults.length === 0) return [];
+  const minLen = Math.min(...validResults.map(r => r.rawData.length));
+  const alignedResults = validResults.map(r => r.rawData.slice(-minLen));
+  const basePrices = alignedResults.map(r => parseFloat(r[0][1]) || 1); 
+
+  const indexRawData = [];
+  for (let i = 0; i < minLen; i++) {
+    let sumOpen = 0, sumHigh = 0, sumLow = 0, sumClose = 0, sumBuyRatio = 0;
+    let timestamp = alignedResults[0][i][0]; 
+    for (let j = 0; j < alignedResults.length; j++) {
+      const kline = alignedResults[j][i]; const base = basePrices[j];
+      sumOpen += (parseFloat(kline[1]) / base) * 1000; sumHigh += (parseFloat(kline[2]) / base) * 1000;
+      sumLow += (parseFloat(kline[3]) / base) * 1000; sumClose += (parseFloat(kline[4]) / base) * 1000;
+      const vol = parseFloat(kline[5]); const takerBuy = parseFloat(kline[9]);
+      sumBuyRatio += vol > 0 ? (takerBuy / vol) : 0.5;
+    }
+    const count = alignedResults.length;
+    const avgOpen = sumOpen / count; const avgClose = sumClose / count;
+    const avgHigh = Math.max(sumHigh / count, avgOpen, avgClose);
+    const avgLow = Math.min(sumLow / count, avgOpen, avgClose);
+    const avgBuyRatio = sumBuyRatio / count;
+    const dummyVol = 1000; const dummyTakerBuy = dummyVol * avgBuyRatio;
+    indexRawData.push([timestamp, avgOpen.toString(), avgHigh.toString(), avgLow.toString(), avgClose.toString(), dummyVol.toString(), 0, 0, 0, dummyTakerBuy.toString(), 0, 0]);
+  }
+  return indexRawData;
+};
+
+const calculateQuantTD = (rawData, interval = '1d', macroStatus = null) => {
+  if (!rawData || rawData.length === 0) return [];
+  let config = { adxThreshold: 30, toleranceFactor: 0.15, requireCVD: false, modeName: '宏观趋势档' };
+  if (['15m'].includes(interval)) config = { adxThreshold: 40, toleranceFactor: 0.30, requireCVD: true, modeName: '微观肉搏档' };
+  else if (['1h', '4h'].includes(interval)) config = { adxThreshold: 35, toleranceFactor: 0.25, requireCVD: false, modeName: '战术震荡档' };
+  
+  let data = rawData.map(d => {
+    let vol = parseFloat(d[5]); let takerBuy = parseFloat(d[9]); let takerSell = vol - takerBuy;
+    return { time: d[0], open: parseFloat(d[1]), high: parseFloat(d[2]), low: parseFloat(d[3]), close: parseFloat(d[4]), volume: vol, takerBuy: takerBuy, takerSell: takerSell, delta: takerBuy - takerSell };
+  });
+
+  let tr = [], atr = [];
+  for (let i = 0; i < data.length; i++) {
+    if (i === 0) tr.push(data[i].high - data[i].low);
+    else tr.push(Math.max(data[i].high - data[i].low, Math.abs(data[i].high - data[i - 1].close), Math.abs(data[i].low - data[i - 1].close)));
+  }
+  for (let i = 0; i < data.length; i++) {
+    if (i < 13) atr.push(tr[i]);
+    else { let sum = 0; for (let j = 0; j < 14; j++) sum += tr[i - j]; atr.push(sum / 14); }
+    data[i].atr = atr[i];
+  }
+
+  for (let i = 1; i < data.length; i++) {
+    let upMove = data[i].high - data[i - 1].high; let downMove = data[i - 1].low - data[i].low;
+    data[i].pDM = (upMove > downMove && upMove > 0) ? upMove : 0; data[i].mDM = (downMove > upMove && downMove > 0) ? downMove : 0;
+  }
+  let smoothTR = 0, smoothPDM = 0, smoothMDM = 0;
+  for (let i = 1; i < data.length; i++) {
+    if (i <= 14) {
+      smoothTR += tr[i]; smoothPDM += data[i].pDM; smoothMDM += data[i].mDM;
+      if (i === 14) {
+        data[i].pDI = smoothTR === 0 ? 0 : 100 * smoothPDM / smoothTR; data[i].mDI = smoothTR === 0 ? 0 : 100 * smoothMDM / smoothTR;
+        data[i].dx = (data[i].pDI + data[i].mDI === 0) ? 0 : 100 * Math.abs(data[i].pDI - data[i].mDI) / (data[i].pDI + data[i].mDI);
+        data[i].adx = data[i].dx;
+      } else { data[i].adx = 0; data[i].pDI = 0; data[i].mDI = 0; }
     } else {
-      finalStyles = allowCustomTags ? styles : validateTags(styles, data.styles); 
+      smoothTR = smoothTR - (smoothTR / 14) + tr[i]; smoothPDM = smoothPDM - (smoothPDM / 14) + data[i].pDM; smoothMDM = smoothMDM - (smoothMDM / 14) + data[i].mDM;
+      data[i].pDI = smoothTR === 0 ? 0 : 100 * smoothPDM / smoothTR; data[i].mDI = smoothTR === 0 ? 0 : 100 * smoothMDM / smoothTR;
+      data[i].dx = (data[i].pDI + data[i].mDI === 0) ? 0 : 100 * Math.abs(data[i].pDI - data[i].mDI) / (data[i].pDI + data[i].mDI);
+      data[i].adx = (data[i - 1].adx * 13 + data[i].dx) / 14;
+    }
+  }
+
+  for (let i = 0; i < data.length; i++) {
+    if (i >= 13) {
+      let sumTR = 0, maxH = -Infinity, minL = Infinity;
+      for (let j = 0; j < 14; j++) {
+        sumTR += tr[i - j];
+        if (data[i - j].high > maxH) maxH = data[i - j].high;
+        if (data[i - j].low < minL) minL = data[i - j].low;
+      }
+      data[i].chop = (maxH - minL === 0) ? 50 : 100 * Math.log10(sumTR / (maxH - minL)) / Math.log10(14);
+    } else { data[i].chop = 50; }
+  }
+
+  let buySetup = 0, sellSetup = 0;
+  for (let i = 0; i < data.length; i++) {
+    data[i].tdCount = 0; data[i].tdType = null; data[i].signalLevel = 0; data[i].signalReason = [];
+    data[i].isTolerated = false; data[i].isBlocked = false; data[i].isAbsorption = false; data[i].aiScore = 0;
+
+    if (i >= 4) {
+      let tolerance = config.toleranceFactor * (data[i].atr || 0); 
+      let strictBuy = data[i].close < data[i - 4].close; let fuzzyBuy = data[i].close < (data[i - 4].close + tolerance);
+      let strictSell = data[i].close > data[i - 4].close; let fuzzySell = data[i].close > (data[i - 4].close - tolerance);
+
+      if (strictBuy) { buySetup++; sellSetup = 0; data[i].tdCount = buySetup; data[i].tdType = 'buy'; } 
+      else if (fuzzyBuy && buySetup > 0) { buySetup++; sellSetup = 0; data[i].tdCount = buySetup; data[i].tdType = 'buy'; data[i].isTolerated = true; } 
+      else if (strictSell) { sellSetup++; buySetup = 0; data[i].tdCount = sellSetup; data[i].tdType = 'sell'; } 
+      else if (fuzzySell && sellSetup > 0) { sellSetup++; buySetup = 0; data[i].tdCount = sellSetup; data[i].tdType = 'sell'; data[i].isTolerated = true; } 
+      else { buySetup = 0; sellSetup = 0; }
+      if (buySetup === 9) buySetup = 0; 
+      if (sellSetup === 9) sellSetup = 0; 
     }
 
-    if (isChinaLocked) {
-        const hasChineseStyle = finalStyles.some(s => data.styles["中国"].includes(s));
-        const chineseInstrumentsList = data.instruments["CN中华/东方乐器"];
-        let validInsts = validateTags(instruments, data.instruments);
-        const hasChineseInst = validInsts.some(i => chineseInstrumentsList.includes(i));
+    if (data[i].tdCount === 9) {
+      let isSmart = Math.abs(data[i].close - data[i - 4].close) > (0.5 * data[i].atr);
+      let isBlocked = false; let isBoosted = false; let fwReason = "";
 
-        if (!hasChineseStyle && !hasChineseInst) {
-            if (!keepLockedStyles) {
-                const randomCnStyle = data.styles["中国"][Math.floor(Math.random() * data.styles["中国"].length)];
-                if (finalStyles.length > 0) finalStyles[0] = randomCnStyle; 
-                else finalStyles.push(randomCnStyle);
+      if (data[i].adx > config.adxThreshold && data[i].chop < 38) {
+        if (data[i].tdType === 'buy' && data[i].mDI > data[i].pDI) { isBlocked = true; fwReason = "单边暴跌，禁止摸底"; } 
+        else if (data[i].tdType === 'sell' && data[i].pDI > data[i].mDI) { isBlocked = true; fwReason = "单边暴涨，禁止猜顶"; }
+      } else if (data[i].chop > 61) {
+        isBoosted = true; fwReason = "本级别震荡主场，胜率加持";
+      }
+      data[i].isBlocked = isBlocked;
+
+      let body = Math.abs(data[i].close - data[i].open);
+      let upWick = data[i].high - Math.max(data[i].open, data[i].close);
+      let dnWick = Math.min(data[i].open, data[i].close) - data[i].low;
+      let isAbsorbed = false;
+
+      if (data[i].tdType === 'sell' && upWick > body * 1.5 && data[i].takerBuy > data[i].takerSell * 1.5) isAbsorbed = true;
+      else if (data[i].tdType === 'buy' && dnWick > body * 1.5 && data[i].takerSell > data[i].takerBuy * 1.5) isAbsorbed = true;
+      data[i].isAbsorption = isAbsorbed;
+
+      let isSweep = false;
+      for (let k = i - 1; k >= Math.max(0, i - 50); k--) {
+        let isSwingHigh = data[k].high > data[k-1]?.high && data[k].high > data[k+1]?.high;
+        let isSwingLow = data[k].low < data[k-1]?.low && data[k].low < data[k+1]?.low;
+        if (data[i].tdType === 'sell' && isSwingHigh && data[i].high > data[k].high && data[i].close < data[k].high) { isSweep = true; break; }
+        if (data[i].tdType === 'buy' && isSwingLow && data[i].low < data[k].low && data[i].close > data[k].low) { isSweep = true; break; }
+      }
+
+      let baseProb = 48.5; 
+      if (isSmart) baseProb += 8.2;
+      if (isBoosted) baseProb += 12.5; 
+      if (isSweep) baseProb += 14.3;   
+      if (isAbsorbed) baseProb += 18.7;
+      if (data[i].isTolerated) baseProb -= 5.1; 
+      
+      let noise = ((data[i].volume % 100) / 100) * 4.5 - 2.25;
+      let finalProb = Math.min(Math.max(baseProb + noise, 12.5), 96.8);
+      if (isBlocked) finalProb = Math.max(finalProb - 45.5, 5.2);
+      
+      data[i].aiScore = finalProb.toFixed(1);
+      data[i].signalLevel = isAbsorbed ? 4 : (isSweep || isBoosted) ? 3 : (isSmart ? 2 : 1);
+    }
+  }
+  return data;
+};
+
+// ==========================================
+// 🚀 Main Application Component
+// ==========================================
+export default function App() {
+  const [coins, setCoins] = useState(() => {
+    try {
+      const savedCoins = localStorage.getItem('star_crypto_coins');
+      if (savedCoins) {
+        const parsed = JSON.parse(savedCoins).filter(c => c !== 'BTCUSDT' && c !== 'CCI'); 
+        const uniqueParsed = [...new Set(parsed)]; 
+        return ['BTCUSDT', ...uniqueParsed];
+      }
+    } catch (e) {}
+    return DEFAULT_COINS;
+  });
+
+  const [newCoin, setNewCoin] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const searchContainerRef = useRef(null);
+  const scanIdRef = useRef(0); 
+  const scanMarketRef = useRef(null); 
+  const hasAutoSetDirectionRef = useRef(false); 
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
+  const [klineInterval, setKlineInterval] = useState('4h');
+  const [isScanning, setIsScanning] = useState(false);
+  const [results, setResults] = useState([]);
+  const [progress, setProgress] = useState(0);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  
+  const [marketEnv, setMarketEnv] = useState(null);
+  const [selectedCoin, setSelectedCoin] = useState(null);
+  const [chartDataCache, setChartDataCache] = useState({});
+  
+  const [totalCapital, setTotalCapital] = useState(10000); 
+  const [riskPerTrade, setRiskPerTrade] = useState(2);     
+
+  const [tradeDirection, setTradeDirection] = useState('long');
+  const [showConflictWarning, setShowConflictWarning] = useState(false);
+  const [conflictData, setConflictData] = useState(null);
+
+  const [isLiveMode, setIsLiveMode] = useState(true);
+  const [livePrices, setLivePrices] = useState({});
+  const [wakeUpTrigger, setWakeUpTrigger] = useState(0); 
+  const [radarPulse, setRadarPulse] = useState(0); // 💓 脉冲起搏器状态
+  const tickBufferRef = useRef({}); 
+
+  const [isRadarOpen, setIsRadarOpen] = useState(false);
+  const [isRadarScanning, setIsRadarScanning] = useState(false);
+  const [radarProgress, setRadarProgress] = useState(0);
+  const [radarStatus, setRadarStatus] = useState('');
+  const [radarResults, setRadarResults] = useState([]);
+  const isRadarOpenRef = useRef(false);
+
+  const [coinRanks, setCoinRanks] = useState({});
+
+  const [danmakus, setDanmakus] = useState([]);
+  const [danmakuHistory, setDanmakuHistory] = useState([]); 
+  const [danmakuInput, setDanmakuInput] = useState('');
+  const [userRegion, setUserRegion] = useState('神秘节点'); 
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false); 
+  const ablyChannelRef = useRef(null);
+  const chatEndRef = useRef(null);
+
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [aiReportContent, setAiReportContent] = useState(null);
+  const [geminiApiKey, setGeminiApiKey] = useState(() => localStorage.getItem('star_gemini_api_key') || '');
+  const [isEditingApiKey, setIsEditingApiKey] = useState(false);
+  const [tempApiKey, setTempApiKey] = useState('');
+
+  const [tooltipData, setTooltipData] = useState(null);
+
+  const [isGeneratingMacro, setIsGeneratingMacro] = useState(false); 
+  const [isGeneratingMicro, setIsGeneratingMicro] = useState(false); 
+  const [posterDataUrl, setPosterDataUrl] = useState(null);
+  const [macroPosterData, setMacroPosterData] = useState(null); 
+  const [microPosterData, setMicroPosterData] = useState(null); 
+
+  const [isSentinelRunning, setIsSentinelRunning] = useState(false);
+  const [alerts, setAlerts] = useState([]);
+  const [isAlertPanelOpen, setIsAlertPanelOpen] = useState(false);
+  const [showOnlyStar, setShowOnlyStar] = useState(false);
+  const sentinelRunningRef = useRef(false);
+
+  const tooltipTimeoutRef = useRef(null);
+
+  const handleMouseEnterTooltip = useCallback((type, res, e) => {
+    if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
+    const rect = e.currentTarget.getBoundingClientRect();
+    setTooltipData({ type, res, rect });
+  }, []);
+
+  const handleMouseLeaveTooltip = useCallback(() => {
+    tooltipTimeoutRef.current = setTimeout(() => setTooltipData(null), 250); 
+  }, []);
+
+  const handleTooltipWindowEnter = useCallback(() => {
+    if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current); 
+  }, []);
+
+  const handleTooltipWindowLeave = useCallback(() => {
+    tooltipTimeoutRef.current = setTimeout(() => setTooltipData(null), 250); 
+  }, []);
+
+  useEffect(() => {
+    initGlobalData(); 
+    fetch('https://ipapi.co/json/')
+      .then(res => res.json())
+      .then(data => {
+        if (data.region) setUserRegion(data.region);
+        else if (data.city) setUserRegion(data.city);
+        else if (data.country_name) setUserRegion(data.country_name);
+      })
+      .catch(() => setUserRegion('星辰漫游者')); 
+
+    const handleClickOutside = (event) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (isHistoryOpen && chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [danmakuHistory, isHistoryOpen]);
+
+  useEffect(() => {
+    if (!ABLY_API_KEY) return; 
+    let ablyInstance = null;
+    let channelInstance = null;
+    const initAbly = () => {
+      if (!window.Ably) return;
+      try {
+        ablyInstance = new window.Ably.Realtime({ key: ABLY_API_KEY });
+        channelInstance = ablyInstance.channels.get('star-crypto-danmaku');
+        ablyChannelRef.current = channelInstance;
+
+        channelInstance.history({ limit: 200 }, (err, resultPage) => {
+          if (err) return;
+          const pastMsgs = resultPage.items.map(msg => ({
+            id: msg.id || Date.now() + Math.random(),
+            text: String(msg.data.text),
+            color: String(msg.data.color),
+            top: msg.data.top,
+            region: String(msg.data.region || '神秘节点'),
+            timestamp: msg.data.timestamp || msg.timestamp || Date.now(),
+          })).reverse();
+          setDanmakuHistory(pastMsgs);
+        });
+
+        channelInstance.subscribe('new-danmaku', (message) => {
+          const newDanmaku = {
+            id: message.id || Date.now() + Math.random(),
+            text: String(message.data.text),
+            color: String(message.data.color),
+            top: message.data.top,
+            region: String(message.data.region || '神秘节点'),
+            timestamp: message.data.timestamp || Date.now(),
+          };
+          setDanmakus((prev) => [...prev, newDanmaku]);
+          setDanmakuHistory((prev) => [...prev, newDanmaku].slice(-200));
+          setTimeout(() => {
+            setDanmakus((prev) => prev.filter((d) => d.id !== newDanmaku.id));
+          }, 8000);
+        });
+      } catch (e) {}
+    };
+
+    if (!window.Ably) {
+      const scriptId = 'ably-cdn-script';
+      let script = document.getElementById(scriptId);
+      if (!script) {
+        script = document.createElement('script');
+        script.id = scriptId;
+        script.src = 'https://cdn.ably.com/lib/ably.min-1.js';
+        script.async = true;
+        script.onload = initAbly;
+        document.head.appendChild(script);
+      } else {
+        script.addEventListener('load', initAbly);
+      }
+    } else {
+      initAbly();
+    }
+    return () => {
+      if (channelInstance) channelInstance.unsubscribe();
+      if (ablyInstance) ablyInstance.close();
+    };
+  }, []);
+
+  const handleSendDanmaku = (e) => {
+    e.preventDefault();
+    const text = danmakuInput.trim();
+    if (!text) return;
+    const payload = {
+      text: text,
+      color: ['#22d3ee', '#818cf8', '#f87171', '#a78bfa', '#34d399', '#fbbf24'][Math.floor(Math.random() * 6)],
+      top: Math.floor(Math.random() * 40) + 10, 
+      region: userRegion,
+      timestamp: Date.now(),
+    };
+    if (ablyChannelRef.current) ablyChannelRef.current.publish('new-danmaku', payload);
+    else {
+      const localDanmaku = { id: Date.now(), ...payload };
+      setDanmakus(prev => [...prev, localDanmaku]);
+      setDanmakuHistory(prev => [...prev, localDanmaku].slice(-200));
+      setTimeout(() => setDanmakus((prev) => prev.filter((d) => d.id !== localDanmaku.id)), 8000);
+    }
+    setDanmakuInput('');
+  };
+
+  const handleUpdateCoins = (newCoins) => {
+    const filtered = newCoins.filter(c => c !== 'BTCUSDT' && c !== 'CCI');
+    const uniqueFiltered = [...new Set(filtered)]; 
+    const finalCoins = ['BTCUSDT', ...uniqueFiltered];
+    setCoins(finalCoins);
+    try { localStorage.setItem('star_crypto_coins', JSON.stringify(finalCoins)); } catch (e) {}
+  };
+
+  const analyzeKlines = useCallback((symbol, klines, benchmarkKlines, klines15m, depth, fundingRate, openInterest, envData, interval, direction = 'long', category = 'crypto', isBenchmark = false, isSentinelExtreme = false) => {
+    if (!klines || klines.length < 150) return null;
+
+    const tdData = calculateQuantTD(klines, interval, null);
+    const lastTd = tdData.length > 0 ? tdData[tdData.length - 1] : null;
+
+    const chartFormatData = klines.map(k => ({
+      time: Math.floor(k[0] / 1000), 
+      open: parseFloat(k[1]),
+      high: parseFloat(k[2]),
+      low: parseFloat(k[3]),
+      close: parseFloat(k[4]),
+    })).sort((a, b) => a.time - b.time);
+
+    const liqClusters = calculateLiquidationClusters(klines);
+
+    const opens = klines.map(k => parseFloat(k[1]));
+    const highs = klines.map(k => parseFloat(k[2]));
+    const lows = klines.map(k => parseFloat(k[3]));
+    const closes = klines.map(k => parseFloat(k[4]));
+    const volumes = klines.map(k => parseFloat(k[5]));
+    const takerBuys = klines.map(k => parseFloat(k[9]));
+
+    const currentPrice = closes[closes.length - 1];
+    
+    const bbWidths = [];
+    for(let i=20; i<closes.length; i++) {
+      const slice = closes.slice(i-20, i);
+      const sma = slice.reduce((a,b)=>a+b,0)/20;
+      const vari = slice.reduce((a,b)=>a+Math.pow(b-sma,2),0)/20;
+      bbWidths.push((Math.sqrt(vari) * 4) / (sma || 1));
+    }
+    const currentBBW = bbWidths[bbWidths.length - 1];
+    const { mean: bbwMean, stdDev: bbwStd } = calculateStdDev(bbWidths.slice(-100));
+    const isZScoreSqueeze = currentBBW < (bbwMean - 1.5 * bbwStd);
+
+    const sortedBBWs = [...bbWidths.slice(-100)].sort((a,b)=>a-b);
+    const currentBBWIndex = sortedBBWs.findIndex(w => w >= currentBBW);
+    const bbwPercentile = sortedBBWs.length > 0 ? (currentBBWIndex / sortedBBWs.length) * 100 : 50;
+    
+    let volLoadFactor = 1.0;
+    if (bbwPercentile <= 20) volLoadFactor = 1.8; 
+    else if (bbwPercentile >= 80) volLoadFactor = 0.5; 
+    else volLoadFactor = 1.0 + (50 - bbwPercentile) / 100; 
+    volLoadFactor = Math.max(0.5, Math.min(2.0, volLoadFactor));
+
+    let buyWall = { price: 0, qty: 0, value: 0 };
+    let bidVol = 0, askVol = 0; 
+    if (depth) {
+      if (depth.bids) {
+        depth.bids.forEach(b => {
+          const price = parseFloat(b[0]);
+          const qty = parseFloat(b[1]);
+          if (price >= currentPrice * 0.95) bidVol += qty;
+          if (direction === 'long' && price >= currentPrice * 0.90 && price <= currentPrice) { 
+            if (qty * price > buyWall.value) buyWall = { price, qty, value: qty * price };
+          }
+        });
+      }
+      if (depth.asks) {
+        depth.asks.forEach(a => {
+          const price = parseFloat(a[0]);
+          const qty = parseFloat(a[1]);
+          if (price <= currentPrice * 1.05) askVol += qty;
+          if (direction === 'short' && price <= currentPrice * 1.10 && price >= currentPrice) { 
+            if (qty * price > buyWall.value) buyWall = { price, qty, value: qty * price };
+          }
+        });
+      }
+    }
+
+    let is15mPump = false;
+    let is15mDump = false;
+    if (klines15m && klines15m.length > 20) {
+      const closes15m = klines15m.map(k => parseFloat(k[4]));
+      const hma20_15m = calculateHMA(closes15m, 20).pop(); 
+      is15mPump = closes15m[closes15m.length-1] > hma20_15m; 
+      is15mDump = closes15m[closes15m.length-1] < hma20_15m; 
+    }
+
+    let beta = 0;
+    if (benchmarkKlines && benchmarkKlines.length === closes.length) {
+      const bmkCloses = benchmarkKlines.map(k => parseFloat(k[4]));
+      const bmkReturns = [];
+      const coinReturns = [];
+      for(let i=closes.length-50; i<closes.length; i++) {
+        bmkReturns.push((bmkCloses[i] - bmkCloses[i-1])/bmkCloses[i-1]);
+        coinReturns.push((closes[i] - closes[i-1])/closes[i-1]);
+      }
+      beta = calculateCorrelation(bmkReturns, coinReturns);
+    }
+
+    const atrs = calculateATR(highs, lows, closes, 14);
+    const currentATR = atrs[atrs.length - 1];
+
+    let cvd = 0;
+    const cvdArray = [];
+    for (let i = 0; i < klines.length; i++) {
+      cvd += (takerBuys[i] - (volumes[i] - takerBuys[i]));
+      cvdArray.push(cvd);
+    }
+
+    const hurst = calculateHurst(closes, 50);
+    let volRegime = 'Normal';
+    if (hurst < 0.45) volRegime = 'Mean_Reversion'; 
+    else if (hurst > 0.55) volRegime = 'Trend_Following'; 
+
+    const priceBuckets = {};
+    let maxVol = 0;
+    let pocPrice = 0;
+    let totalVolForVPVR = 0;
+    let volPriceSumForVPVR = 0;
+    const sliceLen = Math.min(150, klines.length);
+    
+    const recentHighs = highs.slice(-sliceLen);
+    const recentLows = lows.slice(-sliceLen);
+    const pHigh = Math.max(...recentHighs);
+    const pLow = Math.min(...recentLows);
+    
+    const BUCKET_COUNT = 60; 
+    const bucketSize = (pHigh - pLow) / BUCKET_COUNT || (currentPrice * 0.001);
+
+    for (let i = klines.length - sliceLen; i < klines.length; i++) {
+      const h = highs[i];
+      const l = lows[i];
+      const v = volumes[i];
+
+      if (h === l) {
+        let binIndex = Math.floor((h - pLow) / bucketSize);
+        binIndex = Math.max(0, Math.min(BUCKET_COUNT - 1, binIndex));
+        const bucketCenter = pLow + (binIndex + 0.5) * bucketSize;
+        const bucketKey = parseFloat(bucketCenter.toPrecision(6));
+        priceBuckets[bucketKey] = (priceBuckets[bucketKey] || 0) + v;
+      } else {
+        for (let b = 0; b < BUCKET_COUNT; b++) {
+          const bLow = pLow + b * bucketSize;
+          const bHigh = pLow + (b + 1) * bucketSize;
+          const overlap = Math.max(0, Math.min(h, bHigh) - Math.max(l, bLow));
+          
+          if (overlap > 0) {
+            const weight = overlap / (h - l);
+            const distributedVol = v * weight;
+            const bucketCenter = pLow + (b + 0.5) * bucketSize;
+            const bucketKey = parseFloat(bucketCenter.toPrecision(6));
+            priceBuckets[bucketKey] = (priceBuckets[bucketKey] || 0) + distributedVol;
+          }
+        }
+      }
+    }
+
+    for (const [priceStr, vol] of Object.entries(priceBuckets)) {
+      totalVolForVPVR += vol;
+      volPriceSumForVPVR += parseFloat(priceStr) * vol;
+      if (vol > maxVol) {
+        maxVol = vol;
+        pocPrice = parseFloat(priceStr);
+      }
+    }
+
+    const vwapPrice = totalVolForVPVR > 0 ? volPriceSumForVPVR / totalVolForVPVR : currentPrice;
+    const vpvrSkewness = vwapPrice > 0 ? (pocPrice - vwapPrice) / vwapPrice : 0;
+
+    let profileShape = 'D型';
+    if (vpvrSkewness < -0.015) profileShape = 'b型';
+    else if (vpvrSkewness > 0.015) profileShape = 'P型';
+
+    const vpvrData = Object.keys(priceBuckets).map(p => ({
+      price: parseFloat(p),
+      volume: priceBuckets[p],
+      normalizedVol: priceBuckets[p] / maxVol 
+    })).sort((a, b) => b.price - a.price);
+
+    // 🚀 V20.0 终极量化核武：显性市场结构引擎 (Market Structure State Machine)
+    let smcOB = null;
+    let isSMCResonance = false;
+
+    // 1. 算力下沉：分形枢轴点 (Fractal Pivots) 提取与时序排列
+    const pivots = [];
+    const pivotHighs = [];
+    const pivotLows = [];
+    const pLen = 5; 
+    for (let i = pLen; i < closes.length - pLen; i++) {
+       let isPH = true, isPL = true;
+       for (let j = 1; j <= pLen; j++) {
+           if (highs[i - j] >= highs[i] || highs[i + j] >= highs[i]) isPH = false;
+           if (lows[i - j] <= lows[i] || lows[i + j] <= lows[i]) isPL = false;
+       }
+       if (isPH) { pivots.push({ type: 'PH', index: i, price: highs[i] }); pivotHighs.push({ index: i, price: highs[i] }); }
+       if (isPL) { pivots.push({ type: 'PL', index: i, price: lows[i] }); pivotLows.push({ index: i, price: lows[i] }); }
+    }
+    pivots.sort((a, b) => a.index - b.index);
+
+    // 2. 状态机核反应堆：动态追踪 BOS 与 CHoCH
+    let msState = 'Neutral'; 
+    let lastHH = -Infinity, lastHL = -Infinity;
+    let lastLH = Infinity, lastLL = Infinity;
+    let chochSignal = '';
+    let recentBOS = '';
+
+    for (let p of pivots) {
+        if (p.type === 'PH') {
+            if (p.price > lastHH) { 
+                if (msState === 'Bullish') recentBOS = 'Bullish BOS';
+                if (msState === 'Bearish' && p.price > lastLH) {
+                    msState = 'Bullish'; chochSignal = 'Bullish CHoCH';
+                }
+                lastHH = p.price;
             } else {
-                const randomCnInst = chineseInstrumentsList[Math.floor(Math.random() * chineseInstrumentsList.length)];
-                if (validInsts.length > 0) validInsts[0] = randomCnInst; 
-                else validInsts.push(randomCnInst);
-                instruments = validInsts;
+                lastLH = p.price; 
+            }
+        } else {
+            if (p.price < lastLL) { 
+                if (msState === 'Bearish') recentBOS = 'Bearish BOS';
+                if (msState === 'Bullish' && p.price < lastHL) {
+                    msState = 'Bearish'; chochSignal = 'Bearish CHoCH';
+                }
+                lastLL = p.price;
+            } else {
+                lastHL = p.price; 
             }
         }
     }
 
-    const validInstruments = allowCustomTags ? instruments : validateTags(instruments, data.instruments); 
-    const validVocals = allowCustomTags ? (vocals || []) : validateTags(vocals || [], data.vocals);
-    const validProduction = allowCustomTags ? production : validateTags(production, data.production);
-    const validVibes = allowCustomTags ? vibes : validateTags(vibes, data.vibes);
+    // 实时(Live)刺透验证：现价实体是否摧毁了最后防线
+    if (msState === 'Bullish' && currentPrice < lastHL) {
+        msState = 'Bearish'; chochSignal = 'Live Bearish CHoCH 🚨';
+    } else if (msState === 'Bearish' && currentPrice > lastLH) {
+        msState = 'Bullish'; chochSignal = 'Live Bullish CHoCH 🚀';
+    }
 
-    setSelectedStyles(finalStyles);
-    setSelectedInstruments(validInstruments);
-    setSelectedVocals(validVocals);
-    setSelectedProduction(validProduction);
-    setSelectedVibes(validVibes);
+    const isBullishMS = msState === 'Bullish';
+    const isBearishMS = msState === 'Bearish';
     
-    setFinalPrompt(""); 
-    setAnalysisResult(""); 
-    setToastMessage(""); 
+    // [修复 1] 替换硬编码 5% 乖离率陷阱，使用 3 倍 ATR 动态判断是否严重偏离宏观结构
+    const isOverExtendedStruct = direction === 'long' ? (currentPrice > lastHH + (currentATR * 3)) : (currentPrice < lastLL - (currentATR * 3));
 
-    if (finalStyles.length > 0) { const cat = findCategory(data.styles, finalStyles[0]); if (cat) setActiveStyleRegion(cat); }
-    if (validInstruments.length > 0) { const cat = findCategory(data.instruments, validInstruments[0]); if (cat) setActiveInstrumentCategory(cat); }
-    if (validVocals.length > 0) { const cat = findCategory(data.vocals, validVocals[0]); if (cat) setActiveVocalCategory(cat); }
-    if (validProduction.length > 0) { const cat = findCategory(data.production, validProduction[0]); if (cat) setActiveProductionCategory(cat); }
-    if (validVibes.length > 0) { const cat = findCategory(data.vibes, validVibes[0]); if (cat) setActiveVibeCategory(cat); }
-  };
+    // 3. 划定溢价/折扣区 (Dealing Range & PD Array)
+    const macroHigh = lastHH !== -Infinity ? lastHH : Math.max(...highs.slice(-100));
+    const macroLow = lastLL !== Infinity ? lastLL : Math.min(...lows.slice(-100));
+    const eqLevel = (macroHigh + macroLow) / 2; 
 
-  const generateTemplatePrompt = () => {
-    const tempoStr = (tempo && tempo !== 'Auto') ? `[BPM: ${tempo}]` : "";
-    const styleStr = selectedStyles.length > 0 ? `[Style: ${selectedStyles.join(" & ")}]` : "";
-    const instStr = selectedInstruments.length > 0 ? `[Instruments: ${selectedInstruments.join(", ")}]` : "";
-    const vocalStr = selectedVocals.length > 0 ? `[Vocals: ${selectedVocals.join(", ")}]` : "";
-    const prodStr = selectedProduction.length > 0 ? `[Production: ${selectedProduction.join(", ")}]` : "";
-    const vibeStr = selectedVibes.length > 0 ? `[Vibe: ${selectedVibes.join(", ")}]` : "";
+    // 4. 彻底清算的 FVG 引擎 (True Mitigation)
+    let activeBullFVGs = [];
+    let activeBearFVGs = [];
+    for (let i = 2; i < closes.length - 1; i++) {
+       if (lows[i] > highs[i-2]) activeBullFVGs.push({ top: lows[i], bottom: highs[i-2], index: i });
+       if (highs[i] < lows[i-2]) activeBearFVGs.push({ top: lows[i-2], bottom: highs[i], index: i });
+       
+       activeBullFVGs = activeBullFVGs.filter(fvg => lows[i] > fvg.bottom); // 跌破缺口底边即失效
+       activeBearFVGs = activeBearFVGs.filter(fvg => highs[i] < fvg.top);   // 突破缺口顶边即失效
+    }
+    // 强制折扣区物理约束
+    activeBullFVGs = activeBullFVGs.filter(fvg => fvg.top <= eqLevel && fvg.top < currentPrice);
+    activeBearFVGs = activeBearFVGs.filter(fvg => fvg.bottom >= eqLevel && fvg.bottom > currentPrice);
     
-    return [tempoStr, styleStr, instStr, vocalStr, prodStr, vibeStr].filter(s => s).join("\n");
-  };
+    let latestBullFVG = activeBullFVGs.length > 0 ? activeBullFVGs[activeBullFVGs.length - 1] : null;
+    let latestBearFVG = activeBearFVGs.length > 0 ? activeBearFVGs[activeBearFVGs.length - 1] : null;
 
-  const generateAiRefinedPrompt = async () => {
-    if (selectedStyles.length === 0 && selectedInstruments.length === 0) return;
-    if (!consumeCredit()) return; 
-    if (!checkApiConfig()) return; 
+    // 5. 寻找极值订单块 (Origin OB) 并实施 ATR 极权压缩
+    const obLookback = Math.min(150, klines.length);
+    let activeBullOBs = [];
+    let activeBearOBs = [];
 
-    setIsSynthesizing(true);
-    setFinalPrompt("✨ 炼金炉正在燃烧，正在融合元素...");
-    
-    const elements = `Styles: ${selectedStyles.join(", ")}\nInstruments: ${selectedInstruments.join(", ")}\nVocals: ${selectedVocals.join(", ")}\nProduction: ${selectedProduction.join(", ")}\nVibes: ${selectedVibes.join(", ")}\nTempo: ${tempo}`;
-    const systemInstruction = `
-      You are a master music producer (The Alchemist). 
-      Your task is to take the selected "ingredients" and the fusion strategy "${fusionStrategy}" to synthesize a HIGH-QUALITY, professional SUNO AI Prompt.
-      Ingredients: ${elements}
-      Strategy: "${fusionStrategy}"
-      Instructions: 
-      1. Create a structured prompt string that flows logically.
-      2. If "Tempo" is not Auto, include it clearly.
-      3. Use SUNO's meta tag format like [Style: ...] where appropriate.
-      4. Add a short descriptive sentence at the start explaining the sonic texture.
-      5. Output ONLY the final prompt text.
-      6. CRITICAL: If the strategy is 'Mixx Pop (段落硬切)', you MUST follow these specific rules: Assign Style A to [Verse] and a completely contrasting Style B to [Chorus]. You MUST insert transition tags like [Beat Switch] or [Sudden Drop] exactly at the boundary between Verse and Chorus.
-    `;
+    const validBullish = isSentinelExtreme ? true : isBullishMS;
+    const validBearish = isSentinelExtreme ? true : isBearishMS;
 
-    try {
-      const resultText = await callAI(systemInstruction);
-      setFinalPrompt(String(resultText || "AI 生成内容为空"));
-    } catch (error) { 
-      setFinalPrompt(`⚠️ 生成失败: ${error.message}\n请检查您的 API Key、模型名称或网络连通性。\n\n当前模版备份如下：\n` + generateTemplatePrompt()); 
-    } finally { setIsSynthesizing(false); }
-  };
+    for (let i = klines.length - obLookback; i < klines.length - 1; i++) {
+       // [逻辑刺客 3 修复] 左侧特赦阵列：允许极端行情插针刺穿订单块而不被物理销毁 (缓冲 1.5 倍 ATR)
+       if (isSentinelExtreme) {
+           activeBullOBs = activeBullOBs.filter(ob => lows[i] > ob.bottom - (currentATR * 1.5)); 
+           activeBearOBs = activeBearOBs.filter(ob => highs[i] < ob.top + (currentATR * 1.5)); 
+       } else {
+           activeBullOBs = activeBullOBs.filter(ob => lows[i] > ob.bottom); 
+           activeBearOBs = activeBearOBs.filter(ob => highs[i] < ob.top); 
+       }
 
-  const handleGenerateClick = (type) => {
-    if (type === 'template') setFinalPrompt(generateTemplatePrompt());
-    else generateAiRefinedPrompt();
-  };
+       const bodyNext = Math.abs(closes[i+1] - opens[i+1]);
+       const isImpulse = bodyNext > currentATR * 1.5; 
 
-  // 生成企划大纲 (A&R Blueprint)
-  const generateBlueprint = async () => {
-      if (!aiPrompt.trim()) { setAiError("请先输入原始歌词..."); return; }
-      if (!consumeCredit()) return;
-      if (!checkApiConfig()) return;
-
-      setIsGeneratingBlueprint(true); setAiError("");
-      
-      const activeOverdrives = [
-          mixxPopBpm ? "BPM断层 (速度撕裂)" : "",
-          mixxPopVocal ? "唱腔分裂 (人声极度反差)" : "",
-          mixxPopDrop ? "黄金坠落 (三段式Drop/静音深呼吸)" : "",
-          mixxPopInst ? "洗脑器乐Hook (纯乐器Solo段)" : "",
-          mixxPopSyllable ? "字数物理切割 (副歌三字经/单字弹射)" : "",
-          mixxPopAntiDrop ? "反高潮/Dance Break (极简气声或纯电音舞曲间奏)" : "",
-          mixxPopFoley ? "环境采样切刀 (非乐器音效如玻璃碎裂、枪械上膛强行打断)" : "",
-          mixxPopPersona ? "多重人格对唱 (强行为每句分配不同性别/声线的演唱角色)" : ""
-      ].filter(Boolean);
-      
-      const overdriveInstruction = activeOverdrives.length > 0 
-          ? `\n\n【⚠️ 强制激活的极限手法】：${activeOverdrives.join("、")}。你必须在编排大纲中明确安排这些手法的切入点和听感效果！` 
-          : "";
-
-      const promptText = `
-          你是一个顶级音乐总监（A&R）。用户提供了一段歌词，以及他的制作意图。
-          请结合两者，用 150 字以内写一个极具张力的“编曲与演唱大纲（Blueprint）”。
-          要求说明：主歌的情绪/乐器，副歌的突变/乐器（特别是段落硬切安排），以及人声的特殊处理安排。${overdriveInstruction}
+       if (direction === 'long' && validBullish && closes[i+1] > opens[i+1] && isImpulse && closes[i] <= opens[i]) {
+          let obTop = highs[i]; let obBottom = lows[i];
+          let thickness = obTop - obBottom;
           
-          【用户歌词】：
-          ${aiPrompt}
+          if (thickness >= currentATR * 3) { obTop = obBottom + (thickness * 0.3); } 
+          else if (thickness >= currentATR * 2) { obTop = obBottom + (thickness * 0.4); }
           
-          【制作意图】：
-          ${aiIntent || "未提供具体意图，请你根据歌词情感自由发挥，设计一个极具张力、带反差突变的编排方案。"}
-          
-          直接输出大纲文本，不需要任何多余的客套话。
-      `;
-      try {
-          const result = await callAI(promptText);
-          setAiBlueprint(String(result || "").trim());
-          setShowBlueprintArea(true);
-          setToastMessage("✨ 企划大纲已生成，您可以手动修改确认！");
-          setTimeout(() => setToastMessage(""), 3000);
-      } catch (error) {
-          setAiError(`大纲生成失败: ${error.message}`);
-      } finally {
-          setIsGeneratingBlueprint(false);
-      }
-  };
-
-  // 新增：专注深度编排单曲歌词的方法 (解决 AI 偷懒截断问题)
-  const generateFullLyrics = async (e, recipe, index) => {
-      e.stopPropagation(); 
-      // 如果已经生成过了，直接打开
-      if (recipe.enhanced_lyrics) {
-          setShowLyricsModal(String(recipe.enhanced_lyrics));
-          return;
-      }
-
-      if (!consumeCredit()) return;
-      if (!checkApiConfig()) return;
-
-      setIsGeneratingLyricsIndex(index);
-      setToastMessage("🚀 算力全开！正在进行全曲深度编排，请稍候...");
-
-      const isTrack2 = index >= 3; 
-      let trackSpecificRules = "";
-
-      if (!isTrack2) {
-          trackSpecificRules = `
-          === TRACK 1: 顶级商业流行编排 (Smooth & Commercial) ===
-          - 核心要求：为这首商业流行歌曲进行平滑、悦耳的排版。
-          - 标签格式：构建完美的传统结构 [Intro], [Verse 1], [Pre-Chorus], [Chorus], [Bridge], [Outro]。
-          - 细节指示：在歌词间隙插入柔和、专业的乐器和和声提示。例如 (Acoustic guitar strums softly), (Ooh~ ahh~ backing vocals), (Smooth piano build-up)。
-          - 过渡处理：过渡必须是无缝、感人和自然的，绝不使用极端的突变。
-          `;
-      } else {
-          let overdriveRules = "";
-          if ([mixxPopBpm, mixxPopVocal, mixxPopDrop, mixxPopInst, mixxPopSyllable, mixxPopAntiDrop, mixxPopFoley, mixxPopPersona].some(Boolean)) {
-              overdriveRules = `
-              - ⚠️ 极限过载设定 (EXTREME OVERDRIVE CUSTOM SETTINGS ENABLED):
-                请在副歌和过渡段强制应用以下手法：
-                ${[
-                     mixxPopBpm ? "BPM 断层: 在过渡处插入 [Tempo Shift], [Half-time], 或 [Double-time]。" : "",
-                     mixxPopVocal ? "唱腔分裂: 主歌使用气声 [Whisper]/[Mumble]，副歌突变怒音 [Belting]/[Screaming] 或快嘴 [Chopper Flow]。" : "",
-                     mixxPopDrop ? "黄金坠落: 过渡采用 [Pre-Chorus: Build up] -> (Deep breath... 1, 2!) -> [Chorus: Massive Bass Drop, <Style>]。" : "",
-                     mixxPopInst ? "器乐 Hook: 副歌后插入洗脑的 [Instrumental Drop: <Specific Instrument>]。" : "",
-                     mixxPopSyllable ? "字数物理切割: 将副歌改写为极短的碎片（如单字或三字词），例如 '不！退！让！'，逼迫引擎加速。" : "",
-                     mixxPopAntiDrop ? "反高潮/Dance Break: 使用无鼓点气声 [Chorus: Minimalist Bass, Whisper]，或插入纯音乐 [Post-Chorus Dance Break: <Style>]。" : "",
-                     mixxPopFoley ? "环境采样切刀: 在过渡处插入非乐器音效，如 (Glass shattering sound), (Gun cocking), 或 (System Glitch...)。" : "",
-                     mixxPopPersona ? "多重人格对唱: 强制分配角色，如 (Female gentle voice): ... 和 (Male aggressive rapper): ...。" : ""
-                ].filter(Boolean).map((r, i) => `${i + 1}. ${r}`).join('\n                ')}
-              `;
-          } else {
-              overdriveRules = `
-              - 保留主歌: 保持主歌意境，不加多余英文和破坏性提示。
-              - 爆发副歌: 仅在副歌或过渡期加入气氛词 (Break it down! 等)，全曲不超过 2 个。
-              `;
+          if (isSentinelExtreme || (lastHL !== -Infinity && obBottom <= lastHL * 1.02)) { // 特赦下忽略防线依托限制
+             activeBullOBs.push({ top: obTop, bottom: obBottom, type: 'bullish', isSweep: true });
           }
-
-          trackSpecificRules = `
-          === TRACK 2: 极端 MIXX POP 编排 (Hard-cut & Overdrive) ===
-          - 核心要求：打造极度撕裂、极具反差感的前卫听觉体验 (如 K-Pop/赛博朋克)。
-          - 结构与硬切：必须为 [Verse] 分配安静/深情的曲风标签，为 [Chorus] 分配极度暴躁/电子的曲风标签。必须在主副歌交界处精确插入 [Beat Switch] 或 [Sudden Drop]。
-          ${overdriveRules}
-          `;
-      }
-
-      let overrideInstruction = "";
-      if (aiBlueprint.trim() || aiIntent.trim()) {
-          overrideInstruction = `
-          🚨 **最高覆写指令 (ABSOLUTE OVERRIDE DIRECTIVE):**
-          不管上面是什么 TRACK 的规则，你必须把以下用户的【企划大纲/意图】作为最高优先级：
-          [USER INTENT]: ${aiIntent || "None"}
-          [APPROVED BLUEPRINT]: ${aiBlueprint || "None"}
-          如果大纲中存在强烈的冲突设计（硬切、戏曲变调等），请立刻作废 TRACK 1 的“平滑要求”，强制按照用户的冲突设计执行！
-          `;
-      }
-
-      const promptText = `
-      你是一个顶级音乐排版与制作人。任务：根据选定的【编曲配方】，将用户的【全篇原始歌词】进行工业级的结构化排版。
-
-      【当前编曲配方】:
-      - 风格: ${recipe.styles.join(', ')}
-      - 乐器: ${recipe.instruments.join(', ')}
-      - 氛围: ${recipe.vibes?.join(', ')}
-
-      【用户原始全篇歌词】:
-      ${aiPrompt}
-
-      ${trackSpecificRules}
-
-      ${overrideInstruction}
-
-      🚨 语言强制锁定 (LANGUAGE LOCK):
-      你必须 100% 保留原始中文歌词，绝对不允许将其翻译成英文！
-      任何额外添加的垫音、和声或气氛词 (Ad-libs) 都必须极度克制，并且不能改变主体歌词的中文语境（可以使用简单的 Ooh, Ahh, 或是少量适配风格的短促词汇，但严禁自作主张加入大段英文歌词）。
-
-      🚨 核心算力警告 (ANTI-TRUNCATION):
-      你必须把所有的注意力用来处理**全首歌词**！
-      **绝对不允许中途截断、省略（例如使用"..."）或遗漏后面的 Verse 2、Bridge、Outro 等段落！**
-      就算歌词很长，也要完整地从头排版到尾！必须包含每一句原始歌词！
-
-      直接输出排版后的歌词文本，不需要任何客套话，不要带 markdown 代码块。
-      `;
-
-      try {
-          const resultText = await callAI(promptText);
-          const cleanText = String(resultText || "").replace(/```[\s\S]*?\n/g, '').replace(/```/g, '').trim();
+       } 
+       else if (direction === 'short' && validBearish && closes[i+1] < opens[i+1] && isImpulse && closes[i] >= opens[i]) {
+          let obTop = highs[i]; let obBottom = lows[i];
+          let thickness = obTop - obBottom;
           
-          // 将生成的歌词无痛存入当前的 Recipes 数组中
-          const updatedRecipes = [...aiRecipes];
-          updatedRecipes[index] = { ...updatedRecipes[index], enhanced_lyrics: cleanText };
-          setAiRecipes(updatedRecipes);
+          if (thickness >= currentATR * 3) { obBottom = obTop - (thickness * 0.3); } 
+          else if (thickness >= currentATR * 2) { obBottom = obTop - (thickness * 0.4); }
           
-          setShowLyricsModal(cleanText);
-          setToastMessage("✅ 深度编排完成！全曲结构已就绪。");
-      } catch (error) {
-          setToastMessage(`❌ 编排失败: ${error.message}`);
-      } finally {
-          setIsGeneratingLyricsIndex(null);
-          setTimeout(() => setToastMessage(""), 4000);
-      }
-  };
+          if (isSentinelExtreme || (lastLH !== Infinity && obTop >= lastLH * 0.98)) {
+             activeBearOBs.push({ top: obTop, bottom: obBottom, type: 'bearish', isSweep: true });
+          }
+       }
+    }
 
-  const generateAiRecipe = async () => {
-    if (!aiPrompt.trim()) { setAiError("请输入内容..."); return; }
-    if (!consumeCredit()) return; 
-    if (!checkApiConfig()) return;
+    if (direction === 'long') {
+        const validLimit = Math.min(eqLevel, currentPrice * 0.995);
+        if (!isSentinelExtreme) activeBullOBs = activeBullOBs.filter(ob => ob.top <= validLimit);
+    } else {
+        const validLimit = Math.max(eqLevel, currentPrice * 1.005);
+        if (!isSentinelExtreme) activeBearOBs = activeBearOBs.filter(ob => ob.bottom >= validLimit);
+    }
 
-    setIsAiGenerating(true); setAiError(""); setAiRecipes(null);
-    let constraintText = isChinaLocked ? "MANDATORY: Each recipe MUST include at least one Chinese Style (from '中国') OR one Chinese Instrument (from 'CN中华/东方乐器')." : "";
+    if (direction === 'long' && activeBullOBs.length > 0) {
+        smcOB = activeBullOBs[activeBullOBs.length - 1];
+        isSMCResonance = true;
+    } else if (direction === 'short' && activeBearOBs.length > 0) {
+        smcOB = activeBearOBs[activeBearOBs.length - 1];
+        isSMCResonance = true;
+    }
     
-    let instructions = "";
-    if (aiMode === 'lyrics') {
-        let blueprintInstruction = "";
-        if (aiBlueprint.trim() || aiIntent.trim()) {
-            blueprintInstruction = `
-            🚨 **THE ABSOLUTE OVERRIDE DIRECTIVE (最高覆写指令):**
-            The user has provided a specific production intent or an approved blueprint below. 
-            THIS DIRECTIVE HAS THE HIGHEST PRIORITY OVER ALL OTHER RULES! 
-            If the intent or blueprint requests "hard cuts", "sudden drops", or specific contrasting genres, you MUST prioritize it when selecting styles/instruments for ALL 6 RECIPES.
-            
-            [USER INTENT]: ${aiIntent || "None"}
-            [APPROVED BLUEPRINT]: ${aiBlueprint || "None"}
-            `;
+    let targetFVG = direction === 'long' ? latestBullFVG : latestBearFVG;
+
+    // 6. 狙击手单点顺位法 (Entry Hierarchy) 无均线裸K版
+    let entryForRRR;
+    let isFOMO = false;
+    let entryType = '';
+
+    if (direction === 'long') {
+       if (smcOB) {
+          entryForRRR = smcOB.top;
+          entryType = '多头提纯订单块 (Origin OB)';
+       } else if (targetFVG) {
+          entryForRRR = targetFVG.top;
+          entryType = '折扣区未补缺口 (Discount FVG)';
+       } else {
+          // [逻辑刺客 2 修复] 切断 POC 历史黑洞引力。仅当 POC 位于现价下方 3x ATR 范围内时才参考，否则强行使用动态回撤兜底
+          const dynPullback = currentPrice - (currentATR * 1.2);
+          entryForRRR = (pocPrice > currentPrice - (currentATR * 3) && pocPrice < currentPrice) ? pocPrice : dynPullback; 
+          entryType = '动态回撤兜底 (Dynamic Pullback)';
+       }
+       if (currentPrice > entryForRRR + (currentATR * 2)) isFOMO = true;
+    } else {
+       if (smcOB) {
+          entryForRRR = smcOB.bottom;
+          entryType = '空头提纯订单块 (Origin OB)';
+       } else if (targetFVG) {
+          entryForRRR = targetFVG.bottom;
+          entryType = '溢价区未补缺口 (Premium FVG)';
+       } else {
+          // [逻辑刺客 2 修复] 切断天花板 POC 历史黑洞引力。仅当其在合理反弹范围内时启用
+          const dynBounce = currentPrice + (currentATR * 1.2);
+          entryForRRR = (pocPrice < currentPrice + (currentATR * 3) && pocPrice > currentPrice) ? pocPrice : dynBounce;
+          entryType = '动态反弹兜底 (Dynamic Bounce)';
+       }
+       if (currentPrice < entryForRRR - (currentATR * 2)) isFOMO = true;
+    }
+    
+    const atrLookback = Math.min(100, atrs.length);
+    const smoothedATR = atrs.slice(-atrLookback).reduce((a, b) => a + b, 0) / atrLookback;
+    
+    // 🛡️ 结构极权止损 (Structure Stop)
+    let rawStopLoss;
+    if (smcOB && entryType.includes('OB')) {
+        rawStopLoss = direction === 'long' ? smcOB.bottom - (smoothedATR * 0.2) : smcOB.top + (smoothedATR * 0.2); 
+    } else if (targetFVG && entryType.includes('FVG')) {
+        rawStopLoss = direction === 'long' ? targetFVG.bottom - (smoothedATR * 0.5) : targetFVG.top + (smoothedATR * 0.5); 
+    } else {
+        rawStopLoss = direction === 'long' ? ((lastHL !== -Infinity && lastHL < entryForRRR) ? lastHL - (smoothedATR * 0.5) : entryForRRR - (smoothedATR * 1.5)) 
+                                        : ((lastLH !== Infinity && lastLH > entryForRRR) ? lastLH + (smoothedATR * 0.5) : entryForRRR + (smoothedATR * 1.5));
+    }
+
+    // [补丁 1] 最小物理磨损垫 (防极限微观止损被滑点秒杀)
+    const avgBody = closes.slice(-20).reduce((acc, c, idx) => acc + Math.abs(c - opens[closes.length - 20 + idx]), 0) / 20;
+    const minStopDist = Math.max(avgBody * 0.6, currentPrice * 0.002); // 止损绝不能小于大半个均K线实体，或千分之二滑点空间
+    
+    let stopLoss = rawStopLoss;
+    const currentDist = Math.abs(entryForRRR - rawStopLoss);
+    if (currentDist < minStopDist) {
+        stopLoss = direction === 'long' ? entryForRRR - minStopDist : entryForRRR + minStopDist;
+    }
+
+    let targetPrice;
+    const rrrDetails = {
+      smoothedATR, eqLevel, macroHigh, macroLow, lastHH, lastLL, lastHL, lastLH,
+      regime: '', regimeReason: '', targetPrice: 0, riskAmount: Math.abs(entryForRRR - stopLoss),
+      profitAmount: 0, isFOMO, liveRRR: 0, targetFVG, msState, chochSignal
+    };
+
+    if (direction === 'long') {
+      if (entryForRRR >= macroHigh - smoothedATR) {
+          rrrDetails.regime = 'C'; rrrDetails.regimeReason = '逼近/冲破波段大顶，顺势延续预期。';
+          targetPrice = entryForRRR + (smoothedATR * 4.5); 
+      } else if (currentPrice < eqLevel) {
+          rrrDetails.regime = 'A'; rrrDetails.regimeReason = `现价处折扣区底部，吃满结构空间。`;
+          targetPrice = macroHigh;
+      } else {
+          rrrDetails.regime = 'B'; rrrDetails.regimeReason = `向溢价区顶部发起冲击。`;
+          targetPrice = macroHigh;
+      }
+    } else {
+      if (entryForRRR <= macroLow + smoothedATR) {
+          rrrDetails.regime = 'C'; rrrDetails.regimeReason = '跌穿波段大底，主跌浪预期。';
+          targetPrice = Math.max(0.00001, entryForRRR - (smoothedATR * 4.5)); 
+      } else if (currentPrice > eqLevel) {
+          rrrDetails.regime = 'A'; rrrDetails.regimeReason = `现价处溢价区顶部，吃满结构空间。`;
+          targetPrice = macroLow;
+      } else {
+          rrrDetails.regime = 'B'; rrrDetails.regimeReason = `向折扣区底部发起冲击。`;
+          targetPrice = macroLow;
+      }
+    }
+
+    let isFVGMagnet = false;
+    let profitTargetFVG = direction === 'long' ? latestBearFVG : latestBullFVG;
+    if (profitTargetFVG) {
+       if (direction === 'long' && targetPrice >= profitTargetFVG.bottom && targetPrice <= profitTargetFVG.top * 1.05) {
+          isFVGMagnet = true; targetPrice = profitTargetFVG.top; 
+       } else if (direction === 'short' && targetPrice <= profitTargetFVG.top && targetPrice >= profitTargetFVG.bottom * 0.95) {
+          isFVGMagnet = true; targetPrice = profitTargetFVG.bottom; 
+       }
+    }
+
+    rrrDetails.targetPrice = targetPrice;
+    rrrDetails.profitAmount = Math.abs(targetPrice - entryForRRR);
+
+    const rrr = Math.abs(entryForRRR - stopLoss) > 0 ? (Math.abs(targetPrice - entryForRRR) / Math.abs(entryForRRR - stopLoss)) : 0;
+    
+    const liveStopLoss = direction === 'long' ? currentPrice - (smoothedATR * 1.5) : currentPrice + (smoothedATR * 1.5);
+    const liveRRR = Math.abs(currentPrice - liveStopLoss) > 0 ? (Math.abs(targetPrice - currentPrice) / Math.abs(currentPrice - liveStopLoss)) : 0;
+    rrrDetails.liveRRR = liveRRR.toFixed(2);
+
+    let mcSteps = 50; 
+    if (interval === '1h') mcSteps = 300;       
+    else if (interval === '4h') mcSteps = 120;  
+    else if (interval === '1d') mcSteps = 50;   
+
+    const historicalReturns = [];
+    for(let i = 1; i < closes.length; i++) {
+       historicalReturns.push((closes[i] - closes[i-1]) / closes[i-1]);
+    }
+
+    const volScale = Math.max(0.5, Math.min(2.0, currentATR / (smoothedATR || 1)));
+
+    const stepVolatility = smoothedATR / currentPrice; 
+    // [修复 3] 移除 drift 二次叠加，因为 historicalReturns 抽样已天然包含真实动量漂移
+    const mcResults = runMonteCarlo(entryForRRR, targetPrice, stopLoss, historicalReturns, stepVolatility, 2000, mcSteps, direction, 0, volScale);
+    const takerBuyRatio = takerBuys.slice(-10).reduce((a, b) => a + b, 0) / (volumes.slice(-10).reduce((a, b) => a + b, 0) || 1);
+
+    const recentTakerVol = takerBuys.slice(-3).reduce((a, b) => a + b, 0);
+    const recentTotalVol = volumes.slice(-3).reduce((a, b) => a + b, 0) || 1;
+    const recentTakerRatio = recentTakerVol / recentTotalVol;
+
+    const baseTakerVol = takerBuys.slice(-10, -3).reduce((a, b) => a + b, 0);
+    const baseTotalVol = volumes.slice(-10, -3).reduce((a, b) => a + b, 0) || 1;
+    const baseTakerRatio = baseTakerVol / baseTotalVol;
+
+    const takerAcceleration = recentTakerRatio - baseTakerRatio; 
+
+    // 🚀 V21.0 冰山吸收探测 (Iceberg Absorption)
+    let isBullishAbsorption = false;
+    let isBearishAbsorption = false;
+
+    const recentPLs = pivotLows.slice(-2);
+    if (recentPLs.length === 2 && direction === 'long') {
+        const [prevPL, lastPL] = recentPLs;
+        if (lastPL.price < prevPL.price && cvdArray[lastPL.index] > cvdArray[prevPL.index]) {
+            isBullishAbsorption = true;
+        }
+    }
+
+    const recentPHs = pivotHighs.slice(-2);
+    if (recentPHs.length === 2 && direction === 'short') {
+        const [prevPH, lastPH] = recentPHs;
+        if (lastPH.price > prevPH.price && cvdArray[lastPH.index] < cvdArray[prevPH.index]) {
+            isBearishAbsorption = true;
+        }
+    }
+
+    // 📊 CVD 宏观顶底背离 (Macroscopic CVD Divergence)
+    let cvdDiv = 'None';
+    let cvdDivAge = 0;
+    for (let i = 0; i < 6; i++) { 
+        const idx = closes.length - 1 - i;
+        if (idx < 20) break;
+        const p10 = Math.max(0, idx - 10);
+        const p20 = Math.max(0, idx - 20);
+        
+        const priceLL = lows[idx] < Math.min(...lows.slice(p20, p10));
+        const cvdHL = cvdArray[idx] > Math.min(...cvdArray.slice(p20, p10));
+        const priceHH = highs[idx] > Math.max(...highs.slice(p20, p10));
+        const cvdLH = cvdArray[idx] < Math.max(...cvdArray.slice(p20, p10));
+        
+        if (priceLL && cvdHL) { cvdDiv = 'Bullish'; cvdDivAge = i; break; }
+        if (priceHH && cvdLH) { cvdDiv = 'Bearish'; cvdDivAge = i; break; }
+    }
+
+    // ==========================================
+    // 🧠 核心量化打分引擎：矩阵计算
+    // ==========================================
+    const isCCI = symbol === 'CCI';
+    const displaySymbol = symbol.replace('HL:', '').replace(/USDT|USDC/g, '');
+    
+    let calculatedScore = 50; 
+    const scoreBreakdown = []; 
+    const signals = [];
+    
+    if (!isBenchmark && !isCCI) { 
+      if (beta < 0.3) { 
+        calculatedScore = 60; 
+        scoreBreakdown.push({ reason: `独立 Alpha 标的 (Beta < 0.3 与 ${category}基准剥离)`, delta: 10 });
+      } else if (beta > 0.7) { 
+        calculatedScore = 45; 
+        scoreBreakdown.push({ reason: `大盘同质化标的 (Beta > 0.7 随波逐流)`, delta: -5 });
+      }
+    }
+
+    if (!isCCI) {
+      if (direction === 'long') {
+         if (vpvrSkewness < -0.015) { calculatedScore += 10; scoreBreakdown.push({ reason: "筹码重心底宽顶尖 (底部坚实吸筹)", delta: 10 }); } 
+         else if (vpvrSkewness > 0.015) { calculatedScore -= 15; scoreBreakdown.push({ reason: "筹码重心头重脚轻 (上方套牢盘厚重)", delta: -15 }); }
+      } else {
+         if (vpvrSkewness > 0.015) { calculatedScore += 10; scoreBreakdown.push({ reason: "筹码重心头重脚轻 (高位坚实派发区)", delta: 10 }); } 
+         else if (vpvrSkewness < -0.015) { calculatedScore -= 15; scoreBreakdown.push({ reason: "筹码重心底宽顶尖 (下方支撑极强极难跌破)", delta: -15 }); }
+      }
+    }
+
+    // [补丁 3] 资金费率与未平仓合约拥挤度惩罚
+    if (!isCCI && fundingRate && openInterest > 0) {
+      if (direction === 'long') {
+          if (fundingRate < -0.0005) {
+              const fundingDelta = isBenchmark ? 30 : 15; 
+              calculatedScore += fundingDelta;
+              signals.push({ text: isBenchmark ? "☢️ 裁判级轧空信号" : "🧲 轧空燃料", color: "bg-purple-500/20 text-purple-400 border border-purple-500/30 shadow-[0_0_10px_rgba(168,85,247,0.2)]" });
+              scoreBreakdown.push({ reason: `极度负费率 (${isBenchmark ? '基准特权' : '山寨因子'})，易引发轧空`, delta: fundingDelta });
+          } else if (fundingRate > 0.001) {
+              calculatedScore -= 20;
+              signals.push({ text: "⚠️ 多头极度拥挤", color: "bg-red-500/20 text-red-400 border border-red-500/30" });
+              scoreBreakdown.push({ reason: `极端高资金费率 (>0.1%)，多头极度拥挤，易引发多杀多踩踏清算`, delta: -20 });
+          }
+      } else if (direction === 'short') {
+          if (fundingRate > 0.0005) {
+              const fundingDelta = isBenchmark ? 30 : 15; 
+              calculatedScore += fundingDelta;
+              signals.push({ text: isBenchmark ? "☢️ 裁判级踩踏信号" : "🧲 踩踏燃料", color: "bg-purple-500/20 text-purple-400 border border-purple-500/30 shadow-[0_0_10px_rgba(168,85,247,0.2)]" });
+              scoreBreakdown.push({ reason: `极度高资金费率 (${isBenchmark ? '基准特权' : '山寨因子'})，易引发多头踩踏`, delta: fundingDelta });
+          } else if (fundingRate < -0.001) {
+              calculatedScore -= 20;
+              signals.push({ text: "⚠️ 空头极度拥挤", color: "bg-red-500/20 text-red-400 border border-red-500/30" });
+              scoreBreakdown.push({ reason: `极端负资金费率 (<-0.1%)，空头极度拥挤，极易被庄家暴力轧空`, delta: -20 });
+          }
+      }
+    }
+
+    if (!isCCI && bidVol > 0 && askVol > 0) {
+      const buyImbalance = bidVol / askVol;
+      const sellImbalance = askVol / bidVol;
+
+      if (direction === 'long') {
+          if (buyImbalance > 3) {
+              calculatedScore += 10;
+              signals.push({ text: "🧱 底部买盘强托", color: "bg-teal-500/20 text-teal-400 border border-teal-500/30" });
+              scoreBreakdown.push({ reason: `订单薄顺风: 买盘厚度超卖盘 3倍以上，下方支撑极强`, delta: 10 });
+          } else if (sellImbalance > 3) {
+              calculatedScore -= 15;
+              signals.push({ text: "⚠️ 上方卖盘压顶", color: "bg-red-500/20 text-red-400 border border-red-500/30" });
+              scoreBreakdown.push({ reason: `订单薄逆风: 卖盘厚度超买盘 3倍以上，上方抛压极重`, delta: -15 });
+          }
+      } else if (direction === 'short') {
+          if (sellImbalance > 3) {
+              calculatedScore += 10;
+              signals.push({ text: "🧱 顶部卖盘强压", color: "bg-teal-500/20 text-teal-400 border border-teal-500/30" });
+              scoreBreakdown.push({ reason: `订单薄顺风: 卖盘厚度超买盘 3倍以上，上方抛压极强`, delta: 10 });
+          } else if (buyImbalance > 3) {
+              calculatedScore -= 15;
+              signals.push({ text: "⚠️ 下方买盘强托", color: "bg-red-500/20 text-red-400 border border-red-500/30" });
+              scoreBreakdown.push({ reason: `订单薄逆风: 买盘厚度超卖盘 3倍以上，下方支撑极强`, delta: -15 });
+          }
+      }
+    }
+
+    // [补丁 2] VPIN 订单流毒性的双向惩罚
+    if (!isCCI) {
+        if (direction === 'long') {
+            if (takerAcceleration > 0.15) {
+                calculatedScore += 15;
+                scoreBreakdown.push({ reason: "VPIN 订单流毒性: 主买率短时内急剧飙升 (>15%)", delta: 15 });
+                signals.push({ text: "☢️ VPIN 抢筹", color: "bg-teal-500/30 text-teal-300 border border-teal-400 shadow-[0_0_15px_rgba(20,184,166,0.5)] animate-pulse" });
+            } else if (takerAcceleration < -0.15) {
+                calculatedScore -= 20;
+                scoreBreakdown.push({ reason: "逆势高危预警: 多头阵列中遭遇 VPIN 主卖率急剧飙升 (<-15%)", delta: -20 });
+                signals.push({ text: "⚠️ VPIN 遭砸盘", color: "bg-red-500/30 text-red-300 border border-red-400 shadow-[0_0_15px_rgba(244,63,94,0.5)] animate-pulse" });
+            }
+        } else if (direction === 'short') {
+            if (takerAcceleration < -0.15) {
+                calculatedScore += 15;
+                scoreBreakdown.push({ reason: "VPIN 订单流毒性: 主卖率短时内急剧飙升 (<-15%)", delta: 15 });
+                signals.push({ text: "☢️ VPIN 砸盘", color: "bg-rose-500/30 text-rose-300 border border-rose-400 shadow-[0_0_15px_rgba(244,63,94,0.5)] animate-pulse" });
+            } else if (takerAcceleration > 0.15) {
+                calculatedScore -= 20;
+                scoreBreakdown.push({ reason: "逆势高危预警: 空头阵列中遭遇 VPIN 主买率急剧飙升 (>15%)", delta: -20 });
+                signals.push({ text: "⚠️ VPIN 遭抢筹", color: "bg-red-500/30 text-red-300 border border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)] animate-pulse" });
+            }
+        }
+    }
+
+    // [补丁 1] 宏观 CVD 顶底背离双向惩罚
+    let cvdScoreBase = 25;
+    if (volRegime === 'Trend_Following') cvdScoreBase = 40; 
+
+    if (cvdDiv !== 'None') {
+      const decayFactor = Math.exp(-0.4 * cvdDivAge); 
+      const finalCvdScore = Math.round(cvdScoreBase * decayFactor);
+      
+      if (cvdDiv === 'Bullish') {
+          if (direction === 'long') {
+              calculatedScore += finalCvdScore;
+              scoreBreakdown.push({ reason: `机构核心机密: CVD底背离 (T-${cvdDivAge} 放射性指数衰减 x${decayFactor.toFixed(2)})`, delta: finalCvdScore });
+              signals.push({ text: `🚀 CVD底背离${cvdDivAge>0?`(T-${cvdDivAge})`:''}`, color: "bg-emerald-500/30 text-emerald-300 border border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse" });
+          } else if (direction === 'short') {
+              calculatedScore -= finalCvdScore;
+              scoreBreakdown.push({ reason: `反向高危预警: 底部出现CVD底背离，巨鲸暗中托底，严禁追空`, delta: -finalCvdScore });
+              signals.push({ text: `🛑 CVD底背离拦截`, color: "bg-red-500/30 text-red-300 border border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)] animate-pulse" });
+          }
+      } else if (cvdDiv === 'Bearish') {
+          if (direction === 'short') {
+              calculatedScore += finalCvdScore;
+              scoreBreakdown.push({ reason: `机构核心机密: CVD顶背离 (T-${cvdDivAge} 放射性指数衰减 x${decayFactor.toFixed(2)})`, delta: finalCvdScore });
+              signals.push({ text: `☄️ CVD顶背离${cvdDivAge>0?`(T-${cvdDivAge})`:''}`, color: "bg-red-500/30 text-red-300 border border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)] animate-pulse" });
+          } else if (direction === 'long') {
+              calculatedScore -= finalCvdScore;
+              scoreBreakdown.push({ reason: `反向高危预警: 顶部出现CVD顶背离，巨鲸暗中派发，严禁追多`, delta: -finalCvdScore });
+              signals.push({ text: `🛑 CVD顶背离拦截`, color: "bg-red-500/30 text-red-300 border border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)] animate-pulse" });
+          }
+      }
+    }
+
+    // [修复 1] VSA 必须使用已完全定型的上一根 K 线 (length - 2) 避免信号陷阱
+    const completedIdx = Math.max(0, closes.length - 2);
+    const volSlice = volumes.slice(Math.max(0, completedIdx - 20), completedIdx);
+    const volMean = volSlice.reduce((a,b)=>a+b, 0) / (volSlice.length || 1);
+    const volStdDev = Math.sqrt(volSlice.reduce((a,b)=>a+Math.pow(b-volMean,2),0) / (volSlice.length || 1)) || 1;
+    const completedVol = volumes[completedIdx];
+    const completedVolZScore = (completedVol - volMean) / volStdDev;
+
+    const completedBody = Math.abs(closes[completedIdx] - opens[completedIdx]);
+    const completedUpWick = highs[completedIdx] - Math.max(opens[completedIdx], closes[completedIdx]);
+    const completedDnWick = Math.min(opens[completedIdx], closes[completedIdx]) - lows[completedIdx];
+    
+    // [补丁 4] VSA 针尖理论的多空攻防对称 (使用已定型的 completed 数据)
+    if (completedVolZScore > 2.5 && completedBody < currentATR * 0.5 && !isCCI) { 
+        if (direction === 'long') {
+            if (completedUpWick > completedBody * 2) {
+                calculatedScore -= 30; 
+                scoreBreakdown.push({ reason: `VSA 模型防线: 前一完整K线天量长上影 (主力派发诱多，做多高危)`, delta: -30 });
+                signals.push({ text: "⚠️ VSA诱多", color: "bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse" });
+            } else if (completedDnWick > completedBody * 2) {
+                calculatedScore += 20; 
+                scoreBreakdown.push({ reason: `VSA 模型进攻: 前一完整K线天量长下影 (恐慌抛压被全数吸收，底部确认)`, delta: 20 });
+                signals.push({ text: "🛡️ VSA探底吸收", color: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.4)] animate-pulse" });
+            }
+        } else if (direction === 'short') {
+            if (completedDnWick > completedBody * 2) {
+                calculatedScore -= 30; 
+                scoreBreakdown.push({ reason: `VSA 模型防线: 前一完整K线天量长下影 (极大抛压被无痕吸收，做空高危)`, delta: -30 });
+                signals.push({ text: "⚠️ VSA诱空", color: "bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse" });
+            } else if (completedUpWick > completedBody * 2) {
+                calculatedScore += 20; 
+                scoreBreakdown.push({ reason: `VSA 模型进攻: 前一完整K线天量长上影 (买盘被限价卖单全数吸收，顶部确认)`, delta: 20 });
+                signals.push({ text: "🛡️ VSA见顶派发", color: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.4)] animate-pulse" });
+            }
+        }
+    }
+
+    // [修复 2 准备] 计算用于 CVD 显微雷达的动态阈值，取代原本死板的 10 万 U
+    let intervalMins = 240;
+    if (interval === '15m') intervalMins = 15;
+    else if (interval === '1h') intervalMins = 60;
+    else if (interval === '1d') intervalMins = 1440;
+    
+    const avgVol100 = volumes.slice(-100).reduce((a,b)=>a+b, 0) / Math.min(100, volumes.length);
+    const avgDollarVolPerCandle = avgVol100 * currentPrice;
+    const baseline3mVol = avgDollarVolPerCandle * (3 / intervalMins);
+    const dynamicCVDThreshold = Math.max(20000, baseline3mVol * 3);
+
+    if (isFVGMagnet) {
+      calculatedScore += 15;
+      scoreBreakdown.push({ reason: "物理磁吸效应: 目标价落入未填补的 FVG 内", delta: 15 });
+      signals.push({ text: "🧲 FVG 磁吸", color: "bg-blue-500/20 text-blue-400 border border-blue-500/50" });
+    }
+
+    let isLowLiquidity = false;
+    if (!isBenchmark && !isCCI) {
+      if (category === 'crypto') {
+        const bars24h = interval === '15m' ? 96 : interval === '1h' ? 24 : interval === '4h' ? 6 : 1;
+        const vol24hUSD = volumes.slice(-bars24h).reduce((a, b) => a + b, 0) * currentPrice;
+        if (vol24hUSD > 0 && vol24hUSD < 2000000) {
+          isLowLiquidity = true;
+          calculatedScore -= 15;
+          scoreBreakdown.push({ reason: "山寨流动性枯竭惩罚 (24h市值<200万)", delta: -15 });
+        }
+      }
+
+      if (envData && envData.penalty > 0) {
+        if (direction === 'long') {
+          calculatedScore -= envData.penalty;
+          scoreBreakdown.push({ reason: `响应${category}基准大盘(${envData.trend})逆风限制`, delta: -envData.penalty });
+        } else if (direction === 'short') {
+          const bonus = Math.round(envData.penalty / 2);
+          calculatedScore += bonus;
+          scoreBreakdown.push({ reason: `响应${category}基准大盘(${envData.trend})弱势顺风加成`, delta: bonus });
+        }
+      }
+    }
+
+    let confidenceMultiplier = 1.0;
+    if (direction === 'long' && isBullishMS) confidenceMultiplier = 1.3;
+    else if (direction === 'short' && isBearishMS) confidenceMultiplier = 1.3;
+    else if (direction === 'long' && isBearishMS) confidenceMultiplier = 0.6;
+    else if (direction === 'short' && isBullishMS) confidenceMultiplier = 0.6;
+    
+    if (volRegime === 'Mean_Reversion') {
+        confidenceMultiplier *= 1.5; 
+        scoreBreakdown.push({ reason: `赫斯特指数 H=${hurst.toFixed(2)} (均值回归市): 反转因子权重放大 1.5x`, delta: 0 });
+    } else if (volRegime === 'Trend_Following') {
+        confidenceMultiplier *= 0.5; 
+        scoreBreakdown.push({ reason: `赫斯特指数 H=${hurst.toFixed(2)} (强趋势市): 反转因子易失效，权重强制缩减 50%`, delta: 0 });
+    }
+
+    if (isBenchmark) {
+        confidenceMultiplier *= 1.5; 
+        scoreBreakdown.push({ reason: `${displaySymbol} 预言机通道：宏观信度乘数开启 (x1.5)`, delta: 0 });
+    }
+
+    let foundTD9 = false;
+    for (let i = 0; i < Math.min(4, tdData.length); i++) {
+      const td = tdData[tdData.length - 1 - i];
+      if (td && td.tdCount === 9) {
+        const decayMultiplier = i === 0 ? 1 : i === 1 ? 0.6 : i === 2 ? 0.3 : 0.1;
+        const tdDeltaBase = Math.round(15 * confidenceMultiplier * decayMultiplier);
+        
+        let tdDelta = 0;
+        let tdReason = "";
+        
+        if (direction === 'long') {
+            if (td.tdType === 'buy') {
+                tdDelta = tdDeltaBase;
+                tdReason = `TD9 底部反转共振 (多头阵列, 时效 T-${i})`;
+            } else {
+                tdDelta = -tdDeltaBase;
+                tdReason = `TD9 顶部见顶预警 (多头阵列高危, 时效 T-${i})`;
+            }
+        } else {
+            if (td.tdType === 'sell') {
+                tdDelta = tdDeltaBase;
+                tdReason = `TD9 顶部反转共振 (空头阵列, 时效 T-${i})`;
+            } else {
+                tdDelta = -tdDeltaBase;
+                tdReason = `TD9 底部见底预警 (空头阵列高危, 时效 T-${i})`;
+            }
         }
 
-        instructions = `
-            **CRITICAL INSTRUCTION FOR LYRICS ANALYSIS (DUAL-TRACK STRATEGY):**
-            You are a MASTER RECORDING PRODUCER. Analyze the original lyrics: "${aiPrompt}".
-            
-            🚨 **GENRE COHESION DIRECTIVE (流派凝聚力与逻辑融合):**
-            - Anchor Style: First, establish a clear core genre for each recipe.
-            - Acoustic Cohesion: The selected Instruments, Vocals, and Production tags MUST mathematically and acoustically match the chosen Style. Do NOT randomly mix conflicting acoustic elements (e.g., do not pair "Guzheng" with "Detroit Techno" without a valid "World Fusion" justification; ensure "Autotune Heavy" pairs strictly with electronic/trap, not traditional acoustic).
-            - Contrast vs. Chaos: For Track 2 (Mixx Pop), the extreme contrast happens BETWEEN Verse and Chorus. WITHIN each specific section, the musical elements MUST remain highly cohesive and professional.
+        calculatedScore += tdDelta;
+        scoreBreakdown.push({ reason: tdReason, delta: tdDelta });
+        
+        if (i === 0) signals.push({ text: `${td.tdType === 'buy' ? 'BUY' : 'SELL'} 9 爆发`, color: td.tdType === 'buy' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' });
+        else signals.push({ text: `${td.tdType === 'buy' ? 'BUY' : 'SELL'} 9 余温 (T-${i})`, color: 'bg-gray-800 text-gray-400 border border-gray-700' });
+        
+        foundTD9 = true;
+        break; 
+      }
+    }
+    if (!foundTD9 && lastTd && lastTd.tdCount >= 8) {
+      signals.push({ text: `${lastTd.tdType === 'buy' ? 'BUY' : 'SELL'} ${lastTd.tdCount}`, color: lastTd.tdType === 'buy' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'bg-red-500/20 text-red-400 border border-red-500/50' });
+    }
 
-            Create 6 DISTINCT sonic recipes based on the Dual-Track strategy.
+    if (lastTd && lastTd.isAbsorption && !isBullishAbsorption && !isBearishAbsorption) {
+      const absDelta = Math.round(20 * confidenceMultiplier);
+      if (direction === 'long') {
+          if (lastTd.tdType === 'buy') {
+              calculatedScore += absDelta;
+              scoreBreakdown.push({ reason: `L4 核级底部单K线吸收 (综合乘数 x${confidenceMultiplier.toFixed(2)})`, delta: absDelta });
+              signals.push({ text: "🧊 底部单K吸收", color: "bg-cyan-500/20 text-cyan-400 border border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.3)] animate-pulse" });
+          } else {
+              calculatedScore -= absDelta;
+              scoreBreakdown.push({ reason: `L4 核级顶部单K线吸收预警 (防追高惩罚)`, delta: -absDelta });
+              signals.push({ text: "⚠️ 顶部吸收高危", color: "bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.3)] animate-pulse" });
+          }
+      } else {
+          if (lastTd.tdType === 'sell') {
+              calculatedScore += absDelta;
+              scoreBreakdown.push({ reason: `L4 核级顶部单K线吸收 (综合乘数 x${confidenceMultiplier.toFixed(2)})`, delta: absDelta });
+              signals.push({ text: "🧊 顶部单K吸收", color: "bg-cyan-500/20 text-cyan-400 border border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.3)] animate-pulse" });
+          } else {
+              calculatedScore -= absDelta;
+              scoreBreakdown.push({ reason: `L4 核级底部单K线吸收预警 (防追空惩罚)`, delta: -absDelta });
+              signals.push({ text: "⚠️ 底部吸收高危", color: "bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.3)] animate-pulse" });
+          }
+      }
+    }
 
-            === TRACK 1: TOP-TIER COMMERCIAL POP (Recipes 1-3) ===
-            - Vibe: Smooth, radio-ready, Grammy-level commercial production.
-            - Tags: Use tags ONLY from the provided database.
+    if (isFOMO) {
+      calculatedScore -= 15;
+      signals.push({ text: direction === 'long' ? "追高高危" : "追空高危", color: "bg-red-900/50 text-red-400 border border-red-500/50" });
+      scoreBreakdown.push({ reason: "现价严重偏离结构极值防线 (防追高机制)", delta: -15 });
+    }
 
-            === TRACK 2: EXTREME MIXX POP (Recipes 4-6) ===
-            - Vibe: Hyper-contrast, mind-blowing auditory tear (K-Pop/Cyberpunk style).
-            - Tags: Free mode. Use creative, wild tags NOT in the database.
+    if (isSMCResonance) {
+      const smcDelta = Math.round(20 * confidenceMultiplier);
+      calculatedScore += smcDelta; 
+      signals.push({ text: "🩸猎杀流动性", color: "bg-rose-900/40 text-rose-400 border border-rose-500/50 shadow-[0_0_15px_rgba(244,63,94,0.3)] animate-pulse" });
+      scoreBreakdown.push({ reason: `机构级SMC猎杀提纯OB (综合乘数 x${confidenceMultiplier.toFixed(2)})`, delta: smcDelta });
 
-            ${blueprintInstruction}
+      // MTF 跨周期共振 (修正双向)
+      if (is15mPump && direction === 'long') {
+          calculatedScore += 15;
+          scoreBreakdown.push({ reason: "马尔可夫 MTF 共振: 15m级多头起飞伴随宏观 SMC 流动性猎杀完成", delta: 15 });
+          signals.push({ text: "🌊 跨周期共振(多)", color: "bg-cyan-500/30 text-cyan-300 border border-cyan-400 animate-pulse" });
+      } else if (is15mDump && direction === 'short') {
+          calculatedScore += 15;
+          scoreBreakdown.push({ reason: "马尔可夫 MTF 共振: 15m级空头瀑布伴随宏观 SMC 流动性猎杀完成", delta: 15 });
+          signals.push({ text: "🌊 跨周期共振(空)", color: "bg-purple-500/30 text-purple-300 border border-purple-400 animate-pulse" });
+      }
+    }
 
-            ${constraintText}
-            
-            🚨 **CRITICAL EFFICIENCY DIRECTIVE**: 
-            DO NOT GENERATE THE ACTUAL LYRICS NOW! We only need the musical tags in this step to save compute. 
-            You MUST set the "enhanced_lyrics" field to null for ALL 6 objects. The actual lyrics formatting will be done in a later step.
+    if (isOverExtendedStruct) {
+      if (isSentinelExtreme) {
+        scoreBreakdown.push({ reason: "极值猎杀特赦: 豁免价格严重偏离宏观结构极值惩罚", delta: 0 });
+      } else {
+        signals.push({ text: "极端偏离区", color: "bg-red-900/50 text-red-400 border border-red-500/50" });
+        calculatedScore -= 40;
+        scoreBreakdown.push({ reason: "价格严重偏离宏观结构极值 (均值回归风险极高)", delta: -40 });
+      }
+    }
 
-            Output strict JSON ARRAY containing 6 objects: { 
-              "title": "...", 
-              "reason": "...", 
-              "styles": [...], 
-              "instruments": [...], 
-              "vocals": [...],
-              "production": [...], 
-              "vibes": [...],
-              "enhanced_lyrics": null 
-            }.
-            "title" and "reason" MUST be in pure Simplified Chinese. Absolutely NO English translation of the core concepts. No markdown.
-        `;
-    } else if (aiMode === 'enhancer') {
-         instructions = `
-            You are a "Hardcore Music Feature Extractor".
-            Goal: Extract technical sonic parameters from the user's input to COMPLEMENT their description.
-            
-            USER INPUT: "${aiPrompt}"
-            
-            🚨 **GENRE COHESION DIRECTIVE (流派凝聚力):**
-            Ensure the inferred Instruments, Production, and Vocals logically match the extracted Styles. No random, conflicting acoustic pairings unless explicitly stated by the user.
+    let trendScore = 0;
+    if (direction === 'long' && isBullishMS) {
+      const trendDelta = Math.round(15 * volLoadFactor);
+      trendScore += trendDelta; calculatedScore += trendDelta;
+      signals.push({ text: chochSignal.includes('Bullish') ? "🚨 牛市反转(CHoCH)" : "📈 结构看多(BOS)", color: "bg-green-500/20 text-green-400 border border-green-500/50" });
+      scoreBreakdown.push({ reason: `无指标纯裸K验证: 多头结构牢固 (GARCH 波动率载荷 x${volLoadFactor.toFixed(1)})`, delta: trendDelta });
+    } else if (direction === 'short' && isBearishMS) {
+      const trendDelta = Math.round(15 * volLoadFactor);
+      trendScore += trendDelta; calculatedScore += trendDelta;
+      signals.push({ text: chochSignal.includes('Bearish') ? "🚨 熊市反转(CHoCH)" : "📉 结构看空(BOS)", color: "bg-red-500/20 text-red-400 border border-red-500/50" });
+      scoreBreakdown.push({ reason: `无指标纯裸K验证: 空头结构牢固 (GARCH 波动率载荷 x${volLoadFactor.toFixed(1)})`, delta: trendDelta });
+    } else if (direction === 'long' && isBearishMS) {
+      if (isSentinelExtreme) {
+        calculatedScore += 10;
+        signals.push({ text: "💎 左侧摸底特赦", color: "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50" });
+        scoreBreakdown.push({ reason: "左侧极寒特赦: 允许在绝望深渊中逆势摸底", delta: 10 });
+      } else {
+        calculatedScore -= 20;
+        signals.push({ text: "逆势做多(看空)", color: "bg-orange-500/20 text-orange-400 border border-orange-500/50" });
+        scoreBreakdown.push({ reason: "逆势操作惩罚: 当前裸K结构处于 Bearish 状态", delta: -20 });
+      }
+    } else if (direction === 'short' && isBullishMS) {
+      if (isSentinelExtreme) {
+        calculatedScore += 10;
+        signals.push({ text: "🚨 左侧摸顶特赦", color: "bg-rose-500/20 text-rose-400 border border-rose-500/50" });
+        scoreBreakdown.push({ reason: "左侧极寒特赦: 允许在狂暴牛市中逆势摸顶", delta: 10 });
+      } else {
+        calculatedScore -= 20;
+        signals.push({ text: "逆势做空(看多)", color: "bg-orange-500/20 text-orange-400 border border-orange-500/50" });
+        scoreBreakdown.push({ reason: "逆势操作惩罚: 当前裸K结构处于 Bullish 状态", delta: -20 });
+      }
+    }
 
-            TASKS:
-            1. Do NOT rephrase the user's input in the tags.
-            2. EXTRACT & INFER technical parameters that are IMPLIED but missing from the text.
-               - Rhythm/Style: (e.g. Syncopated, Polyrhythm, Trap, Ballad)
-               - Instruments: (e.g. 808 Bass, Guzheng, Distortion Guitar)
-               - Production: (e.g. Sidechain, Lo-fi, Wide Stereo)
-               - Vibes: (e.g. Ethereal, Aggressive)
-            3. Allow FREE-FORM tags (do not stick to database).
-            
-            Create 3 DISTINCT variations.
-            
-            Output strict JSON ARRAY containing 3 objects: { 
-              "title": "...", 
-              "reason": "...", 
-              "styles": ["..."], 
-              "instruments": ["..."], 
-              "vocals": ["..."],
-              "production": ["..."], 
-              "vibes": ["..."],
-              "enhanced_lyrics": null
-            }.
-            "title" and "reason" MUST be in Simplified Chinese. No markdown.
-        `;
+    const distToPoc = (currentPrice - pocPrice) / pocPrice;
+    if (direction === 'long') {
+        if (distToPoc >= 0 && distToPoc <= 0.02) {
+            calculatedScore += 10;
+            signals.push({ text: "踩稳POC铁底", color: "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30" });
+            scoreBreakdown.push({ reason: "精准回踩 POC 主力成本区 (强力支撑)", delta: 10 });
+        } else if (distToPoc < 0 && distToPoc >= -0.02) {
+            calculatedScore -= 15;
+            signals.push({ text: "⚠️多在天花板", color: "bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse" });
+            scoreBreakdown.push({ reason: "量化大忌: 现价被 POC 铁墙死死压制，严禁在天花板下做多", delta: -15 });
+        }
+    } else if (direction === 'short') {
+        if (distToPoc <= 0 && distToPoc >= -0.02) {
+            calculatedScore += 10;
+            signals.push({ text: "反抽POC压顶", color: "bg-purple-500/20 text-purple-400 border border-purple-500/30" });
+            scoreBreakdown.push({ reason: "精准反抽 POC 泰山压顶 (绝佳空点)", delta: 10 });
+        } else if (distToPoc > 0 && distToPoc <= 0.02) {
+            calculatedScore -= 15;
+            signals.push({ text: "⚠️空在铁底", color: "bg-red-500/20 text-red-400 border border-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse" });
+            scoreBreakdown.push({ reason: "量化大忌: 现价正踩在 POC 铁墙支撑上，严禁空在底部", delta: -15 });
+        }
+    }
+
+    // [修复 3] 平滑阶梯式对数化盈亏比打分，取消动辄 -30 分的“连环鞭尸”
+    if (rrr < 1.5) {
+      if (trendScore >= 15 && !isOverExtendedStruct) {
+        calculatedScore -= 5;
+        scoreBreakdown.push({ reason: "盈亏比偏低 < 1.5 (强势趋势豁免大部分扣分)", delta: -5 });
+      } else {
+        calculatedScore -= 15;
+        scoreBreakdown.push({ reason: "盈亏比逆风区: 盈亏比 < 1.5，容错率低", delta: -15 });
+      }
+    } else if (rrr >= 1.5 && rrr < 2.5) {
+      calculatedScore -= 5;
+      scoreBreakdown.push({ reason: `慢性放血区: 盈亏比 ${rrr.toFixed(1)}x (<2.5)，略有损耗`, delta: -5 });
+    } else if (rrr >= 2.5 && rrr < 4.0) {
+      scoreBreakdown.push({ reason: `及格中性区: 盈亏比 ${rrr.toFixed(1)}x，保持中立`, delta: 0 });
+    } else if (rrr >= 4.0) {
+      // 边际效用递减: log2(4/2)=1加5分, log2(8/2)=2加10分, 极限封顶15分
+      const rrrLogBonus = Math.min(15, Math.round(Math.log2(rrr / 2) * 5));
+      calculatedScore += rrrLogBonus;
+      scoreBreakdown.push({ reason: `优质奖励区: 盈亏比 ${rrr.toFixed(1)}x (对数边际递减)`, delta: rrrLogBonus });
+    }
+
+    const mcWinRate = parseFloat(mcResults.targetProb);
+    const mcLossRate = parseFloat(mcResults.stopProb);
+    const avgSteps = mcResults.avgTargetSteps || mcSteps;
+    
+    // [修复 3] 期望值统御 (软化负面期望的绝对死刑，保留优质指标救场的可能)
+    const expectancy = (mcWinRate / 100) * rrr - (mcLossRate / 100) * 1; 
+
+    if (expectancy < 0 && !isCCI) {
+      if (isSentinelExtreme) {
+        scoreBreakdown.push({ reason: "极值猎杀特赦: 豁免蒙特卡洛右侧趋势惯性的负期望惩罚", delta: 0 });
+      } else {
+        calculatedScore -= 15;
+        scoreBreakdown.push({ reason: `数学期望为负 (每承担1风险单位，预期亏损 ${Math.abs(expectancy).toFixed(2)})`, delta: -15 });
+        signals.push({ text: "☠️ 负期望陷阱", color: "bg-red-950 text-red-300 border border-red-600 animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.5)]" });
+      }
+    } else if (expectancy > 0.5) {
+      const expBonus = Math.min(20, Math.round(expectancy * 12));
+      calculatedScore += expBonus;
+      scoreBreakdown.push({ reason: `正向数学期望统御 (预期收益 ${expectancy.toFixed(2)} / 风险单位)`, delta: expBonus });
+      signals.push({ text: "💎 高期望标的", color: "bg-amber-500/20 text-amber-400 border border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.3)] animate-pulse" });
+    }
+
+    const timeAdjustedExpectancy = expectancy / avgSteps;
+    if (expectancy > 0 && timeAdjustedExpectancy < 0.01 && avgSteps > (mcSteps * 0.8) && !isCCI) {
+       calculatedScore -= 10;
+       scoreBreakdown.push({ reason: `资金磨损惩罚: 预期需 ${Math.round(avgSteps)} 周期达成，时间流转效率极低`, delta: -10 });
+       signals.push({ text: "⏳ 盘整磨损", color: "bg-gray-800 text-gray-400 border border-gray-700" });
+    }
+
+    if (direction === 'neutral' && !isBenchmark && !isCCI) {
+        if (beta > 0.4) {
+            calculatedScore -= 30;
+            scoreBreakdown.push({ reason: "混沌期高 Beta 惩罚 (仅允许独立 Alpha 存活)", delta: -30 });
+        } else {
+            calculatedScore += 10;
+            scoreBreakdown.push({ reason: "混沌期低 Beta 奖励 (独立 Alpha 避险属性)", delta: 10 });
+            signals.push({ text: "🛡️ 独立避风港", color: "bg-indigo-500/20 text-indigo-400 border border-indigo-500/50" });
+        }
+    }
+
+    if (isLowLiquidity && calculatedScore > 75) {
+      scoreBreakdown.push({ reason: "流动性安全锁 (最高封顶 75分)", delta: -(Math.round(calculatedScore) - 75) });
+      calculatedScore = 75;
+    }
+
+    // 统一归置 Kelly 到期望值体系下
+    let kellyPctFinal = expectancy > 0 ? (expectancy / rrr) : 0;
+
+    if (kellyPctFinal <= 0 && !isCCI) {
+        // [逻辑刺客 1 修复] 抹除“只惩罚高分导致分数倒挂”的降级悖论，采用统一扣分，保持单调性公信力
+        if (!isSentinelExtreme) {
+            const expectPenalty = 15;
+            scoreBreakdown.push({ reason: "凯利数学期望为负 (剥夺极品预警评级，执行统一下调)", delta: -expectPenalty });
+            calculatedScore -= expectPenalty;
+        } else {
+            scoreBreakdown.push({ reason: "极值猎杀特赦: 豁免凯利期望降级，信任左侧赔率", delta: 0 });
+        }
+    }
+
+    const finalScoreDelta = calculatedScore - 50;
+    const kSmooth = 0.03; 
+    let finalScoreValue = 50;
+    
+    if (finalScoreDelta > 0) {
+        finalScoreValue = 50 + 50 * (1 - Math.exp(-kSmooth * finalScoreDelta));
+    } else if (finalScoreDelta < 0) {
+        finalScoreValue = 50 - 50 * (1 - Math.exp(-kSmooth * Math.abs(finalScoreDelta)));
+    }
+    
+    const score = Math.min(100, Math.max(0, Math.round(finalScoreValue)));
+
+    return {
+      symbol, currentPrice, score, signals, scoreBreakdown, chartData: chartFormatData, vpvrData, mcResults, buyWall, direction,
+      tdData, liqClusters, lastTd, 
+      plan: { entryPoint: entryForRRR, entryType, pocPrice: pocPrice, smcOB, stopLoss, target: targetPrice, rrr: rrr.toFixed(2), riskPercent: (Math.abs(entryForRRR - stopLoss) / entryForRRR * 100).toFixed(1) },
+      metrics: { rawAtr: currentATR, atr: currentATR.toPrecision(3), bbw: (currentBBW * 100).toFixed(1) + '%', beta: beta.toFixed(2), takerBuyRatio: (takerBuyRatio * 100).toFixed(1) + '%', vpinAccel: (takerAcceleration * 100).toFixed(1) + '%', cvdThreshold: dynamicCVDThreshold, profileShape },
+      rrrDetails 
+    };
+  }, []);
+
+  const evaluateMarketRegime = (btcKlines, name = 'BTC') => {
+    if (!btcKlines || btcKlines.length < 145) return { trend: '未知', penalty: 0, color: 'text-gray-400', isBearish: false, regimeType: 'neutral' };
+    
+    const closes = btcKlines.map(k => parseFloat(k[4]));
+    const highs = btcKlines.map(k => parseFloat(k[2]));
+    const lows = btcKlines.map(k => parseFloat(k[3]));
+    const vols = btcKlines.map(k => parseFloat(k[5]));
+    const takerBuys = btcKlines.map(k => parseFloat(k[9]));
+    
+    const currentBTC = closes[closes.length - 1];
+    
+    // 算力下沉：计算基准标的结构状态 (V20 MS Engine)
+    const pivots = [];
+    const pLen = 5;
+    for (let i = pLen; i < closes.length - pLen; i++) {
+       let isPH = true, isPL = true;
+       for (let j = 1; j <= pLen; j++) {
+           if (highs[i - j] >= highs[i] || highs[i + j] >= highs[i]) isPH = false;
+           if (lows[i - j] <= lows[i] || lows[i + j] <= lows[i]) isPL = false;
+       }
+       if (isPH) pivots.push({ type: 'PH', price: highs[i] });
+       if (isPL) pivots.push({ type: 'PL', price: lows[i] });
+    }
+    
+    let msState = 'Neutral'; 
+    let lastHH = -Infinity, lastHL = -Infinity;
+    let lastLH = Infinity, lastLL = Infinity;
+    for (let p of pivots) {
+        if (p.type === 'PH') {
+            if (p.price > lastHH) { msState = 'Bullish'; lastHH = p.price; } 
+            else { lastLH = p.price; }
+        } else {
+            if (p.price < lastLL) { msState = 'Bearish'; lastLL = p.price; } 
+            else { lastHL = p.price; }
+        }
+    }
+    if (msState === 'Bullish' && currentBTC < lastHL) msState = 'Bearish';
+    if (msState === 'Bearish' && currentBTC > lastLH) msState = 'Bullish';
+
+    const atrArray = calculateATR(highs, lows, closes, 14);
+    const atrCurrent = atrArray[atrArray.length - 1];
+    
+    let cvd = 0;
+    const cvdArr = [];
+    for (let i = 0; i < btcKlines.length; i++) {
+       cvd += (takerBuys[i] - (vols[i] - takerBuys[i]));
+       cvdArr.push(cvd);
+    }
+    const p10 = Math.max(0, closes.length - 10);
+    const priceHH = highs[closes.length - 1] >= Math.max(...highs.slice(p10, closes.length - 1));
+    const cvdLH = cvdArr[cvdArr.length - 1] < Math.max(...cvdArr.slice(p10, cvdArr.length - 1));
+    const isDailyCVDTopDiv = priceHH && cvdLH; 
+    
+    let trend = `${name}结构健康`;
+    let penalty = 0;
+    let color = 'text-green-400';
+    let isBearish = false;
+    let regimeType = 'bull'; 
+    
+    if (msState === 'Bearish') {
+        if (currentBTC < lastLL - atrCurrent) {
+            trend = `${name}深熊结构 (跌破前低 LL)`; penalty = 30; color = 'text-red-500'; isBearish = true; regimeType = 'bear';
+        } else {
+            trend = `${name}空头主导 (反弹 LH 阻力)`; penalty = 15; color = 'text-orange-400'; isBearish = true; regimeType = 'bear';
+        }
+    } else if (msState === 'Bullish') {
+        if (currentBTC > lastHH + atrCurrent) {
+            trend = `${name}极度狂热 (突破前高 HH)`; penalty = 10; color = 'text-yellow-400'; isBearish = false; regimeType = 'bull';
+        } else {
+            if (isDailyCVDTopDiv) { trend = `${name}高危滞涨 (日线资金流出)`; penalty = 15; color = 'text-orange-400'; isBearish = true; regimeType = 'neutral'; }
+            else { trend = `${name}多头结构 (回踩 HL 支撑)`; penalty = 0; color = 'text-green-400'; isBearish = false; regimeType = 'bull'; }
+        }
     } else {
-        instructions = `
-            You are a music production expert AI. Analyze description: "${aiPrompt}".
-            
-            🚨 **GENRE COHESION DIRECTIVE (流派凝聚力):**
-            Ensure strict acoustic logic. The selected Instruments, Vocals, and Production MUST closely serve and match the core Styles. Avoid random, dissonant pairings.
-
-            Create 6 DISTINCT sonic recipes.
-            - Recipes 1-3: Use tags ONLY from the provided database. (Strict)
-            - Recipes 4-6: Use creative, wild, or non-existent tags NOT in the database. (Free Mode)
-            
-            ${constraintText}
-            Output strict JSON ARRAY containing 6 objects: { "title", "reason", "styles", "instruments", "vocals", "production", "vibes", "enhanced_lyrics": null }. "title" and "reason" MUST be in Simplified Chinese. No markdown.
-        `;
+        trend = `${name}混沌震荡 (无清晰阶梯)`; penalty = 20; color = 'text-gray-400'; isBearish = false; regimeType = 'neutral';
     }
     
-    const fullPrompt = `${instructions}\nDatabase structure: ${JSON.stringify(data)}`;
-
-    try {
-      const resultText = await callAI(fullPrompt);
-      const cleanJson = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleanJson);
-      if (Array.isArray(parsed)) setAiRecipes(parsed);
-    } catch (error) { 
-      setAiError(`炼金失败: ${error.message}`); 
-    } finally { setIsAiGenerating(false); }
+    return { trend, penalty, color, isBearish, regimeType };
   };
 
-  const generateRandomMix = () => {
-    setIsAnimating(true); setCopySuccess(false);
-    setTimeout(() => {
-      const getRandom = (arr, count) => [...arr].sort(() => 0.5 - Math.random()).slice(0, count);
-      const allStyles = Object.values(data.styles).flat();
-      const allInstruments = Object.values(data.instruments).flat();
-      const allVocals = Object.values(data.vocals).flat();
-      const allProduction = Object.values(data.production).flat(); 
-      const allVibes = Object.values(data.vibes).flat(); 
-
-      let s = (isBaseLocked && selectedStyles.length > 0) ? selectedStyles : getRandom(allStyles, 2);
-      let i = getRandom(allInstruments, 3);
-      let voc = getRandom(allVocals, 1);
-      let p = getRandom(allProduction, 3);
-      let v = getRandom(allVibes, 2);
-
-      if (isChinaLocked) {
-          const hasCnStyle = s.some(style => data.styles["中国"].includes(style));
-          const hasCnInst = i.some(inst => data.instruments["CN中华/东方乐器"].includes(inst));
-          if (!hasCnStyle && !hasCnInst) {
-              const forceStyle = Math.random() > 0.5;
-              if (forceStyle && !isBaseLocked) {
-                  const cnStyles = data.styles["中国"];
-                  const randomCnStyle = cnStyles[Math.floor(Math.random() * cnStyles.length)];
-                  if (s.length > 0) s[0] = randomCnStyle; else s.push(randomCnStyle);
-              } else {
-                  const cnInsts = data.instruments["CN中华/东方乐器"];
-                  const randomCnInst = cnInsts[Math.floor(Math.random() * cnInsts.length)];
-                  if (i.length > 0) i[0] = randomCnInst; else i.push(randomCnInst);
-              }
-          }
+  const toggleSentinel = async () => {
+    if (!isSentinelRunning) {
+      if ("Notification" in window && Notification.permission !== "granted") {
+        await Notification.requestPermission();
       }
-      applyAutoMix(s, i, voc, p, v, isBaseLocked);
-      setIsAnimating(false);
-    }, 400);
+      setIsSentinelRunning(true);
+      sentinelRunningRef.current = true;
+    } else {
+      setIsSentinelRunning(false);
+      sentinelRunningRef.current = false;
+    }
   };
 
-  const generateStrategyBasedMix = async () => {
-    if (!consumeCredit()) return; 
-    if (!checkApiConfig()) return;
-    setIsAnimating(true); setCopySuccess(false);
+  const runSentinelScan = useCallback(async () => {
+    if (!sentinelRunningRef.current) return;
+
+    try {
+        // 第一阶段：全局宏观动量扫描与数据预载 (24h Ticker 寻找极性标的)
+        const tickRes = await safeFetch('https://api.binance.com/api/v3/ticker/24hr').catch(()=>null);
+        let binanceTargets = [];
+        let btcChange = 0;
+
+        // 获取全网资金费率，用于第二阶段“杀猪”过滤
+        const fapiRes = await safeFetch('https://fapi.binance.com/fapi/v1/premiumIndex').catch(()=>null);
+        let fundingMap = {};
+        if (fapiRes && fapiRes.ok) {
+            const fData = await fapiRes.json();
+            fData.forEach(item => fundingMap[item.symbol] = parseFloat(item.lastFundingRate));
+        }
+
+        if (tickRes && tickRes.ok) {
+            const tickers = await tickRes.json();
+            const btcTicker = tickers.find(t => t.symbol === 'BTCUSDT');
+            if (btcTicker) btcChange = parseFloat(btcTicker.priceChangePercent);
+
+            binanceTargets = tickers
+                .filter(t => t.symbol.endsWith('USDT') && t.symbol !== 'BTCUSDT')
+                .sort((a,b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
+                .slice(0, 30).map(t => ({ 
+                    symbol: t.symbol, 
+                    isHL: false, 
+                    rawName: t.symbol.replace('USDT', ''),
+                    change24h: parseFloat(t.priceChangePercent),
+                    funding: fundingMap[t.symbol] || 0
+                }));
+        }
+
+        let hlTargets = [];
+        const hlRes = await fetch('https://api.hyperliquid.xyz/info', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ type: "metaAndAssetCtxs" }) }).catch(()=>null);
+        if (hlRes && hlRes.ok) {
+            const hlData = await hlRes.json();
+            const meta = hlData[0]; const ctxs = hlData[1];
+            const combined = meta.universe.map((u, i) => {
+                const markPx = parseFloat(ctxs[i].markPx);
+                const prevPx = parseFloat(ctxs[i].prevDayPx);
+                const change = prevPx > 0 ? ((markPx - prevPx) / prevPx) * 100 : 0;
+                return { name: u.name, vol: parseFloat(ctxs[i].dayNtlVlm), change24h: change, funding: parseFloat(ctxs[i].funding) * 100 * 3 }; 
+            });
+            hlTargets = combined.sort((a,b) => b.vol - a.vol).slice(0, 15).map(t => ({ 
+                symbol: `HL:${t.name}`, 
+                isHL: true, 
+                rawName: t.name,
+                change24h: t.change24h,
+                funding: t.funding
+            }));
+        }
+
+        const allTargets = [...binanceTargets, ...hlTargets];
+        if (allTargets.length === 0) return;
+
+        // =========================================
+        // 漏斗过滤核心算法 (MTF Engine)
+        // =========================================
+        
+        allTargets.forEach(t => t.rs = t.change24h - btcChange);
+        allTargets.sort((a, b) => b.rs - a.rs); 
+
+        const topCount = Math.max(5, Math.floor(allTargets.length * 0.2));
+        const topLongs = allTargets.slice(0, topCount); 
+        const bottomShorts = allTargets.slice(-topCount); 
+
+        const qualifiedShorts = topLongs.filter(t => t.funding >= 0.0001).map(t => ({...t, targetDir: 'short'}));
+        const qualifiedLongs = bottomShorts.filter(t => t.funding <= 0.0001).map(t => ({...t, targetDir: 'long'}));
+
+        const finalCandidates = [...qualifiedLongs, ...qualifiedShorts];
+
+        // 🌟 载入大盘 15m, 1h, 1d 基准验证 (MTF共振核心)
+        const [btcKlines15m, btcKlines1h, btcKlines1d] = await Promise.all([
+            fetchBenchmark('BTCUSDT', '15m', 150),
+            fetchBenchmark('BTCUSDT', '1h', 150),
+            fetchBenchmark('BTCUSDT', '1d', 150)
+        ]);
+        const env15m = evaluateMarketRegime(btcKlines15m, 'BTC');
+
+        for (let i = 0; i < finalCandidates.length; i++) {
+            if (!sentinelRunningRef.current) break;
+            const { symbol, isHL, rawName, targetDir, funding } = finalCandidates[i];
+
+            // 第一道漏斗：15分钟级别高频扫描火力侦察
+            let klines15m = null;
+            if (!isHL) klines15m = await safeFetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=150`).then(r => r.json()).catch(()=>null);
+            else klines15m = await hlFetchKlines(rawName, '15m', 150);
+
+            if (!klines15m || klines15m.length < 100) continue;
+
+            const analysis15m = analyzeKlines(symbol, klines15m, btcKlines15m, null, null, funding, 0, env15m, '15m', targetDir, 'crypto', false, true);
+            if (!analysis15m || parseFloat(analysis15m.metrics.beta) > 0.7) continue;
+
+            // 发报扳机：15m 触发极值，且伴随强资金流或订单块支撑
+            if (analysis15m.score >= 70 && (analysis15m.plan.smcOB || analysis15m.signals.some(s => s.text.includes('CVD') || s.text.includes('VSA') || s.text.includes('VPIN')))) {
+                
+                // 🚨 触发 15m 警报！懒加载 1H 和 1D 进行跨周期(MTF)共振核验
+                let klines1h = null, klines1d = null;
+                if (!isHL) {
+                    [klines1h, klines1d] = await Promise.all([
+                        safeFetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1h&limit=150`).then(r => r.json()).catch(()=>null),
+                        safeFetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=150`).then(r => r.json()).catch(()=>null)
+                    ]);
+                } else {
+                    [klines1h, klines1d] = await Promise.all([
+                        hlFetchKlines(rawName, '1h', 150),
+                        hlFetchKlines(rawName, '1d', 150)
+                    ]);
+                }
+
+                let tags = [];
+                
+                // 核验 1H 共振
+                if (klines1h && klines1h.length >= 100) {
+                    const env1h = evaluateMarketRegime(btcKlines1h, 'BTC');
+                    const analysis1h = analyzeKlines(symbol, klines1h, btcKlines1h, null, null, funding, 0, env1h, '1h', targetDir, 'crypto', false, true);
+                    if (analysis1h) {
+                        if (analysis1h.score >= 60) tags.push(`[🌊1H${targetDir==='long'?'多头':'空头'}共振]`);
+                        if (analysis1h.plan.smcOB) tags.push(`[🎯1H极值区]`);
+                    }
+                }
+
+                // 核验 1D 共振
+                if (klines1d && klines1d.length >= 100) {
+                    const env1d = evaluateMarketRegime(btcKlines1d, 'BTC');
+                    const analysis1d = analyzeKlines(symbol, klines1d, btcKlines1d, null, null, funding, 0, env1d, '1d', targetDir, 'crypto', false, true);
+                    if (analysis1d) {
+                        if (analysis1d.score >= 60) tags.push(`[🌋1D大势共振]`);
+                        if (analysis1d.plan.smcOB) {
+                            tags.push(targetDir === 'long' ? `[🛡️1D铁底支撑]` : `[🧱1D铁顶压制]`);
+                        }
+                        if (analysis1d.rrrDetails.msState.includes(targetDir==='long'?'Bullish':'Bearish')) tags.push(`[📈日线顺风]`);
+                        
+                        const shape = analysis1d.metrics.profileShape;
+                        if (shape === 'b型') tags.push(`[🛡️b型兜底(1D)]`);
+                        else if (shape === 'P型') tags.push(`[🧱P型压顶(1D)]`);
+                        else if (shape === 'D型') tags.push(`[⚖️D型平衡(1D)]`);
+                    }
+                }
+
+                if (tags.length === 0) tags.push(`[💨无大周期共振(短线)]`);
+
+                // 🌟 V2 严苛的多空同向共振引擎 (Strict Resonance Engine)
+                let isStar = false;
+                let hasFatalConflict = false; // 致命多空冲突标记
+                
+                // 1H 顺风判定
+                const has1HResonance = tags.some(t => t.includes(`1H${targetDir === 'long' ? '多头' : '空头'}共振`) || t.includes('1H极值区'));
+                const has1DMacro = tags.some(t => t.includes('1D大势') || t.includes('日线顺风'));
+
+                if (targetDir === 'long') {
+                    const has1DSupport = tags.some(t => t.includes('铁底支撑') || t.includes('b型'));
+                    const has1DResistance = tags.some(t => t.includes('P型')); // 做多时遇到宏观P型压顶，判定为死劫
+                    if (has1DResistance) hasFatalConflict = true;
+                    
+                    // 完美做多共振：1H顺风 + (1D大势顺风 或 1D有强底) 且 没有遭遇宏观逆风压制
+                    if (has1HResonance && (has1DMacro || has1DSupport) && !hasFatalConflict) isStar = true;
+                } else {
+                    const has1DResistance = tags.some(t => t.includes('铁顶压制') || t.includes('P型'));
+                    const has1DSupport = tags.some(t => t.includes('b型')); // 做空时遇到宏观b型托底，判定为死劫
+                    if (has1DSupport) hasFatalConflict = true;
+                    
+                    // 完美做空共振：1H顺风 + (1D大势顺风 或 1D有强压) 且 没有遭遇宏观逆风托底
+                    if (has1HResonance && (has1DMacro || has1DResistance) && !hasFatalConflict) isStar = true;
+                }
+
+                const tagsStr = tags.join(' ');
+                const title = targetDir === 'long' 
+                  ? `💎 [血筹建仓] ${symbol.replace(/USDT|HL:/g,'')} 15m 触发终极伏击` 
+                  : `🚨 [极寒逃顶] ${symbol.replace(/USDT|HL:/g,'')} 15m 触发高位派发`;
+                
+                const desc = targetDir === 'long' 
+                  ? `${tagsStr} 15m级别回踩SMC订单块，巨鲸暗中吸筹！(评分: ${analysis15m.score})` 
+                  : `${tagsStr} 15m级别触及主力防线，巨鲸出现派发！(评分: ${analysis15m.score})`;
+                
+                setAlerts(prev => {
+                    const isDup = prev.some(p => p.symbol === symbol && p.type === targetDir && (Date.now() - p.timestamp < 7200000));
+                    if (isDup) return prev;
+                    if ("Notification" in window && Notification.permission === "granted") new Notification(title, { body: desc, icon: 'https://cdn-icons-png.flaticon.com/512/3260/3260867.png' });
+                    return [{ id: Date.now() + Math.random(), timestamp: Date.now(), symbol, price: analysis15m.currentPrice, type: targetDir, score: analysis15m.score, title, desc, isHL, tags, isStar }, ...prev].slice(0, 100);
+                });
+            }
+            await new Promise(r => setTimeout(r, 300));
+        }
+    } catch(e) {}
+  }, [analyzeKlines]);
+
+  useEffect(() => {
+    let intervalId;
+    if (isSentinelRunning) {
+      runSentinelScan(); 
+      intervalId = setInterval(() => { runSentinelScan(); }, 15 * 60 * 1000); 
+    }
+    return () => clearInterval(intervalId);
+  }, [isSentinelRunning, runSentinelScan]);
+
+  const scanMarket = async (forceRestart = false) => {
+    if (isScanning && !forceRestart) return;
     
-    let constraints = [];
-    if (isBaseLocked && selectedStyles.length > 0) constraints.push(`LOCKED Styles: ${JSON.stringify(selectedStyles)}. Build around these.`);
-    if (isChinaLocked) constraints.push(`MANDATORY: Include Chinese Style or Chinese Instruments.`);
-    const strategyInstruction = strategies.find(s => s.value === fusionStrategy)?.desc || fusionStrategy;
-    const systemInstruction = `
-      You are a music curator AI. Select ingredients based on strategy: "${strategyInstruction}".
-      Constraints: ${constraints.join("\n")}
-      Output strict JSON object (NO markdown) with keys: "styles", "instruments", "vocals", "production", "vibes".
-      Database: ${JSON.stringify(data)}
-    `;
+    const currentScanId = ++scanIdRef.current; 
+    setIsScanning(true);
+    setProgress(0);
+    setMarketEnv(null);
+
     try {
-        const resultText = await callAI(systemInstruction);
-        const cleanJson = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
-        const parsed = JSON.parse(cleanJson);
-        const finalStyles = (isBaseLocked && selectedStyles.length > 0) ? selectedStyles : (parsed.styles || []);
-        applyAutoMix(finalStyles, parsed.instruments || [], parsed.vocals || [], parsed.production || [], parsed.vibes || [], isBaseLocked);
-        setToastMessage(`✨ 已根据「${fusionStrategy.split(' ')[0]}」策略完成炼成`);
-        setTimeout(() => setToastMessage(""), 3000);
-    } catch (error) { 
-        console.error(error);
-        generateRandomMix(); 
-        setToastMessage(`⚠️ AI连接失败(${error.message})，已切换为随机融合`); 
-        setTimeout(() => setToastMessage(""), 3000); 
-    } finally { setIsAnimating(false); }
-  };
-
-  const generateSmartMix = async () => {
-    if (!consumeCredit()) return; 
-    if (!checkApiConfig()) return;
-    setIsSmartMixing(true); setCopySuccess(false);
-    
-    let constraints = [];
-    if (isBaseLocked && selectedStyles.length > 0) constraints.push(`LOCKED Styles: ${JSON.stringify(selectedStyles)}. Build around these.`);
-    if (isChinaLocked) constraints.push(`MANDATORY: Include Chinese Style or Chinese Instruments.`);
-    const systemInstruction = `
-      You are a music curator AI. Create ONE unique, creatively balanced music fusion recipe.
-      Constraints: ${constraints.join("\n")}
-      Output strict JSON object (NO markdown) with keys: "styles", "instruments", "vocals", "production", "vibes".
-      Database: ${JSON.stringify(data)}
-    `;
-    try {
-      const resultText = await callAI(systemInstruction);
-      const cleanJson = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleanJson);
-      const finalStyles = (isBaseLocked && selectedStyles.length > 0) ? selectedStyles : (parsed.styles || []);
-      applyAutoMix(finalStyles, parsed.instruments || [], parsed.vocals || [], parsed.production || [], parsed.vibes || [], isBaseLocked);
-    } catch (error) { 
-      console.error(error);
-      generateRandomMix();
-      setToastMessage(`⚠️ 智能融合失败(${error.message})，已切换为随机融合`);
-      setTimeout(() => setToastMessage(""), 3000); 
-    } finally { setIsSmartMixing(false); }
-  };
-
-  const handleMainMixButtonClick = () => {
-      if (isStrategyLinked) { generateStrategyBasedMix(); } else { generateRandomMix(); }
-  };
-
-  const analyzeMix = async () => {
-    if (selectedStyles.length === 0 && selectedInstruments.length === 0) return;
-    if (!consumeCredit()) return; 
-    if (!checkApiConfig()) return;
-
-    setIsAnalyzing(true); setAnalysisError(""); setAnalysisResult("");
-    const promptText = `
-      Please analyze the following music mix recipe:
-      Styles: ${selectedStyles.join(", ")}
-      Instruments: ${selectedInstruments.join(", ")}
-      Vocals: ${selectedVocals.join(", ")}
-      Production: ${selectedProduction.join(", ")}
-      Vibes: ${selectedVibes.join(", ")}
-      Your task is to write a descriptive analysis in Chinese, following this specific format and tone:
-      "一种融合了[风格1特征]、[风格2特征]以及[其他元素]的风格，打造出[整体氛围]的[流派定义]风格，助力[目标人群/用途]实现[效果]。#[形容词1] #[形容词2]，在[元素A]部分营造[氛围A]，在[元素B]部分展现[特征B] #[情感描述]"
-      Keep it creative, evocative, and professional. Output ONLY the text.
-    `;
-    try {
-      const resultText = await callAI(promptText);
-      setAnalysisResult(String(resultText || "分析内容为空"));
-    } catch (error) { 
-      setAnalysisError(`分析失败: ${error.message}`); 
-    } finally { setIsAnalyzing(false); }
-  };
-
-  const clearAll = () => {
-    if (isBaseLocked) { setSelectedInstruments([]); setSelectedVocals([]); setSelectedProduction([]); setSelectedVibes([]); } 
-    else { setSelectedStyles([]); setSelectedInstruments([]); setSelectedVocals([]); setSelectedProduction([]); setSelectedVibes([]); }
-    setCopySuccess(false); setAnalysisResult(""); setToastMessage(""); setFinalPrompt("");
-  };
-
-  const toggleSelection = (category, item) => {
-    const setters = { styles: setSelectedStyles, instruments: setSelectedInstruments, vocals: setSelectedVocals, production: setSelectedProduction, vibes: setSelectedVibes };
-    const currentValues = { styles: selectedStyles, instruments: selectedInstruments, vocals: selectedVocals, production: selectedProduction, vibes: selectedVibes };
-    const current = currentValues[category];
-    const setFn = setters[category];
-    let nextSelection = [];
-    if (current.includes(item)) { 
-      nextSelection = current.filter(i => i !== item); 
-      if (category === 'styles' && isSmartLinkageEnabled) {
-          const matchedKey = Object.keys(styleAssociations).find(k => k === item || item.includes(k.split(' ')[0]));
-          if (matchedKey) {
-              const association = styleAssociations[matchedKey];
-              const instrumentsToRemove = association.instruments || [];
-              const productionToRemove = association.production || [];
-              const vibesToRemove = association.vibes || [];
-              if (instrumentsToRemove.length > 0) setSelectedInstruments(prev => prev.filter(i => !instrumentsToRemove.includes(i)));
-              if (productionToRemove.length > 0) setSelectedProduction(prev => prev.filter(p => !productionToRemove.includes(p)));
-              if (vibesToRemove.length > 0) setSelectedVibes(prev => prev.filter(v => !vibesToRemove.includes(v)));
-          }
+      const tickRes = await safeFetch('https://api.binance.com/api/v3/ticker/24hr');
+      if (tickRes && tickRes.ok) {
+        const tickers = await tickRes.json();
+        const usdtTickers = tickers
+          .filter(t => t.symbol.endsWith('USDT') && t.symbol !== 'BTCUSDT')
+          .sort((a,b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
+        const ranks = {};
+        usdtTickers.forEach((t, i) => ranks[t.symbol] = i + 1);
+        setCoinRanks(ranks);
       }
-    } else { 
-      nextSelection = [...current, item]; 
-      if (category === 'styles' && isSmartLinkageEnabled) {
-          const matchedKey = Object.keys(styleAssociations).find(k => k === item || item.includes(k.split(' ')[0]));
-          if (matchedKey) {
-              const association = styleAssociations[matchedKey];
-              const newInstruments = association.instruments || [];
-              const newProduction = association.production || [];
-              const newVibes = association.vibes || [];
-              const instrumentsToAdd = newInstruments.filter(i => !selectedInstruments.includes(i));
-              if (instrumentsToAdd.length > 0) setSelectedInstruments(prev => [...prev, ...instrumentsToAdd]);
-              const productionToAdd = newProduction.filter(p => !selectedProduction.includes(p));
-              if (productionToAdd.length > 0) setSelectedProduction(prev => [...prev, ...productionToAdd]);
-              const vibesToAdd = newVibes.filter(v => !selectedVibes.includes(v));
-              if (vibesToAdd.length > 0) setSelectedVibes(prev => [...prev, ...vibesToAdd]);
-              const addedItems = [...instrumentsToAdd, ...productionToAdd, ...vibesToAdd];
-              if (addedItems.length > 0) {
-                  const simpleNames = addedItems.map(s => { const match = s.match(/\(([^)]+)\)/); return match ? match[1] : s.split(' ')[0]; }).join("、");
-                  setToastMessage(`已自动关联核心元素：${simpleNames}`);
-                  setTimeout(() => setToastMessage(""), 3500);
-              }
+    } catch (e) {}
+
+    let currentEnv = { trend: '未知', penalty: 0, color: 'text-gray-400', regimeType: 'bull' };
+    let activeDirection = tradeDirection === 'neutral' ? 'long' : tradeDirection; 
+    
+    const benchmarkSymbols = { crypto: 'BTCUSDT', equity: 'NDX', commodity: 'GOLD', forex: 'EURUSD' };
+    const envs = {};
+    const intKlines = {};
+
+    try {
+      await Promise.all(Object.entries(benchmarkSymbols).map(async ([cat, sym]) => {
+        const k1d = await fetchBenchmark(sym, '1d', 150);
+        const kInt = await fetchBenchmark(sym, klineInterval, 200);
+        if (k1d && k1d.length >= 145) {
+          envs[cat] = evaluateMarketRegime(k1d, sym.replace('USDT', ''));
+        } else {
+          envs[cat] = { trend: '未知', penalty: 0, color: 'text-gray-400', regimeType: 'neutral' };
+        }
+        intKlines[cat] = kInt;
+      }));
+
+      currentEnv = envs.crypto || currentEnv;
+
+      if (!hasAutoSetDirectionRef.current && currentEnv.regimeType) {
+        const autoDir = currentEnv.regimeType === 'bear' ? 'short' : currentEnv.regimeType === 'neutral' ? 'neutral' : 'long';
+        if (autoDir !== tradeDirection) {
+          setTradeDirection(autoDir);
+          activeDirection = autoDir === 'neutral' ? 'long' : autoDir;
+        }
+        hasAutoSetDirectionRef.current = true;
+      }
+    } catch (e) {}
+    setMarketEnv(currentEnv);
+
+    const scannedData = [];
+    const newChartCache = {};
+    const allKlinesForCCI = []; 
+
+    const evalDirection = tradeDirection === 'neutral' ? 'neutral' : tradeDirection;
+
+    for (let i = 0; i < coins.length; i++) {
+      if (currentScanId !== scanIdRef.current) return; 
+
+      const symbol = coins[i]; 
+      let klines = null, k15m = null, depth = null, fundingRate = 0.0001, openInterest = 0;
+      let isHyperliquidNode = false;
+      
+      const isDirectHL = symbol.startsWith('HL:');
+      const searchSymbol = isDirectHL ? symbol.replace('HL:', '') : symbol;
+      let actualSymbolUsed = searchSymbol; 
+
+      try {
+        let klinesRes = null;
+        if (!isDirectHL) {
+          klinesRes = await safeFetch(`https://api.binance.com/api/v3/klines?symbol=${searchSymbol}&interval=${klineInterval}&limit=200`).catch(()=>null);
+        }
+        
+        if (klinesRes && klinesRes.ok) {
+          klines = await klinesRes.json();
+          actualSymbolUsed = searchSymbol;
+          const [k15mRes, depthRes, fapiRes, oiRes] = await Promise.all([
+            safeFetch(`https://api.binance.com/api/v3/klines?symbol=${searchSymbol}&interval=15m&limit=50`).catch(()=>null),
+            safeFetch(`https://api.binance.com/api/v3/depth?symbol=${searchSymbol}&limit=100`).catch(()=>null),
+            safeFetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${searchSymbol}`).catch(() => null),
+            safeFetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${searchSymbol}`).catch(() => null)
+          ]);
+
+          if (k15mRes && k15mRes.ok) k15m = await k15mRes.json();
+          if (depthRes && depthRes.ok) depth = await depthRes.json();
+          if (fapiRes && fapiRes.ok) fundingRate = parseFloat((await fapiRes.json()).lastFundingRate || 0);
+          if (oiRes && oiRes.ok) openInterest = parseFloat((await oiRes.json()).openInterest || 0);
+        } else {
+          isHyperliquidNode = true;
+          
+          let hlTarget = searchSymbol;
+          const stripped = searchSymbol.replace(/USDT|USDC/g, ''); 
+          
+          if (hlDictionary[searchSymbol]) hlTarget = hlDictionary[searchSymbol];
+          else if (hlDictionary[stripped]) hlTarget = hlDictionary[stripped]; 
+          else hlTarget = isDirectHL ? searchSymbol : stripped; 
+
+          klines = await hlFetchKlines(hlTarget, klineInterval, 200);
+          
+          if (!klines && !hlTarget.includes(':')) {
+              const darkTarget = `xyz:${hlTarget}`; 
+              klines = await hlFetchKlines(darkTarget, klineInterval, 200);
+              if (klines) hlTarget = darkTarget; 
           }
+
+          if (klines && klines.length >= 100) { 
+            actualSymbolUsed = hlTarget; 
+            k15m = await hlFetchKlines(hlTarget, '15m', 50).catch(()=>null);
+            const l2Res = await fetch('https://api.hyperliquid.xyz/info', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: "l2Book", coin: hlTarget })
+            }).catch(()=>null);
+            
+            if (l2Res && l2Res.ok) {
+              const l2 = await l2Res.json();
+              if (l2 && l2.levels && l2.levels.length >= 2) {
+                 depth = { bids: l2.levels[0].map(b => [b.px, b.sz]), asks: l2.levels[1].map(a => [a.px, a.sz]) };
+              }
+            }
+          }
+        }
+
+        if (!klines || klines.length < 100) {
+           setProgress(((i + 1) / coins.length) * 100);
+           continue; 
+        }
+        
+        allKlinesForCCI.push({ symbol: actualSymbolUsed, rawData: klines }); 
+        
+        const category = getAssetCategory(actualSymbolUsed);
+        const isBenchmark = Object.values(benchmarkSymbols).includes(actualSymbolUsed) || actualSymbolUsed === 'BTCUSDT';
+        const bmkKlines = intKlines[category] || intKlines['crypto'];
+        const bmkEnv = envs[category] || currentEnv;
+
+        const analysis = analyzeKlines(symbol, klines, bmkKlines, k15m, depth, fundingRate, openInterest, bmkEnv, klineInterval, evalDirection, category, isBenchmark);
+        if (analysis) {
+          analysis.isHL = isHyperliquidNode; 
+          analysis.actualSymbol = actualSymbolUsed; 
+          scannedData.push(analysis);
+          newChartCache[symbol] = analysis.chartData;
+        }
+      } catch (err) {}
+      
+      if (currentScanId !== scanIdRef.current) return; 
+      setProgress(((i + 1) / coins.length) * 100);
+      await new Promise(res => setTimeout(res, 200)); 
+    }
+
+    if (allKlinesForCCI.length > 0 && currentScanId === scanIdRef.current) {
+        const cciRaw = buildCompositeIndex(allKlinesForCCI);
+        const cciAnalysis = analyzeKlines('CCI', cciRaw, intKlines['crypto'], null, null, 0.0001, 0, currentEnv, klineInterval, evalDirection, 'crypto', true);
+        if (cciAnalysis) {
+            cciAnalysis.isHL = false;
+            cciAnalysis.actualSymbol = 'CCI';
+            scannedData.push(cciAnalysis);
+            newChartCache['CCI'] = cciAnalysis.chartData;
+        }
+    }
+
+    if (currentScanId === scanIdRef.current) {
+      const validScores = scannedData.filter(d => d.symbol !== 'CCI').map(d => d.score);
+      const meanScore = validScores.length > 0 ? validScores.reduce((a,b)=>a+b,0) / validScores.length : 50;
+      const stdDevScore = validScores.length > 0 ? (Math.sqrt(validScores.reduce((a,b)=>a+Math.pow(b-meanScore,2),0) / validScores.length) || 1) : 1;
+      
+      scannedData.forEach(d => {
+         d.crossZScore = d.symbol === 'CCI' ? 0 : parseFloat(((d.score - meanScore) / stdDevScore).toFixed(2));
+      });
+
+      let finalResults = scannedData;
+      if (tradeDirection === 'neutral') {
+          finalResults = scannedData.filter(d => d.symbol === 'CCI' || (d.score >= 75 && parseFloat(d.metrics.beta) < 0.4));
+      }
+
+      finalResults.sort((a, b) => {
+        if (a.symbol === 'CCI') return -1;
+        if (b.symbol === 'CCI') return 1;
+        if (a.symbol === 'BTCUSDT') return -1;
+        if (b.symbol === 'BTCUSDT') return 1;
+        return b.score - a.score;
+      });
+      setResults(finalResults);
+      setChartDataCache(prev => ({...prev, ...newChartCache}));
+      setIsScanning(false);
+    }
+  };
+
+  const runRadarScan = async () => {
+    if (isRadarScanning) return;
+    isRadarOpenRef.current = true;
+    setIsRadarOpen(true);
+    setIsRadarScanning(true);
+    setRadarResults([]);
+    setRadarProgress(0);
+    setRadarStatus('初始化多锚点雷达矩阵，同步全球大盘环境...');
+
+    try {
+      const benchmarkSymbols = { crypto: 'BTCUSDT', equity: 'NDX', commodity: 'GOLD', forex: 'EURUSD' };
+      const envs = {};
+      const intKlines = {};
+
+      await Promise.all(Object.entries(benchmarkSymbols).map(async ([cat, sym]) => {
+        const k1d = await fetchBenchmark(sym, '1d', 150);
+        const kInt = await fetchBenchmark(sym, klineInterval, 200);
+        if (k1d && k1d.length >= 145) {
+          envs[cat] = evaluateMarketRegime(k1d, sym.replace('USDT', ''));
+        } else {
+          envs[cat] = { trend: '未知', penalty: 0, color: 'text-gray-400', regimeType: 'neutral' };
+        }
+        intKlines[cat] = kInt;
+      }));
+
+      setRadarStatus('拉取全网 24h 资金流动性榜单...');
+      const tickRes = await safeFetch('https://api.binance.com/api/v3/ticker/24hr');
+      if (!tickRes || !tickRes.ok) throw new Error('Ticker failed');
+      const tickers = await tickRes.json();
+      const usdtTickers = tickers
+        .filter(t => t.symbol.endsWith('USDT') && t.symbol !== 'BTCUSDT')
+        .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
+
+      const ranks = {};
+      usdtTickers.forEach((t, i) => ranks[t.symbol] = i + 1);
+      setCoinRanks(ranks);
+
+      const topCoins = usdtTickers.slice(0, 200).map(t => t.symbol);
+      const goldenCoins = [];
+      const evalDirection = tradeDirection === 'neutral' ? 'long' : tradeDirection;
+
+      for (let i = 0; i < topCoins.length; i++) {
+        if (!isRadarOpenRef.current) break; 
+
+        const symbol = topCoins[i];
+        setRadarStatus(`[${i + 1}/200] 侦测: ${symbol} ...`);
+        setRadarProgress(((i + 1) / 200) * 100);
+
+        try {
+          const klRes = await safeFetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${klineInterval}&limit=200`);
+          if (!klRes || !klRes.ok) continue;
+          const klines = await klRes.json();
+          if (klines.length < 144) continue;
+
+          const closes = klines.map(k => parseFloat(k[4]));
+          const price = closes[closes.length - 1];
+          const alma144 = calculateALMA(closes, 144).pop(); 
+          const ema50 = calculateEMA(closes, 50).pop();
+
+          if (price < alma144 && price < ema50) continue; 
+
+          const [k15mRes, depthRes, fapiRes, oiRes] = await Promise.all([
+            safeFetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=50`),
+            safeFetch(`https://api.binance.com/api/v3/depth?symbol=${symbol}&limit=100`),
+            safeFetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`).catch(() => null),
+            safeFetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${symbol}`).catch(() => null)
+          ]);
+
+          const k15m = (k15mRes && k15mRes.ok) ? await k15mRes.json() : null;
+          const depth = (depthRes && depthRes.ok) ? await depthRes.json() : null;
+          let fr = 0.0001, oi = 0;
+          if (fapiRes && fapiRes.ok) fr = parseFloat((await fapiRes.json()).lastFundingRate || 0);
+          if (oiRes && oiRes.ok) oi = parseFloat((await oiRes.json()).openInterest || 0);
+          
+          const category = getAssetCategory(symbol);
+          const isBenchmark = Object.values(benchmarkSymbols).includes(symbol) || symbol === 'BTCUSDT';
+          const bmkKlines = intKlines[category] || intKlines['crypto'];
+          const bmkEnv = envs[category] || envs['crypto'];
+
+          const analysis = analyzeKlines(symbol, klines, bmkKlines, k15m, depth, fr, oi, bmkEnv, klineInterval, evalDirection, category, isBenchmark);
+
+          if (analysis && analysis.score >= 65) {
+            analysis.actualSymbol = symbol; 
+            goldenCoins.push(analysis);
+            setRadarResults([...goldenCoins].sort((a, b) => b.score - a.score));
+          }
+        } catch (err) {}
+        await new Promise(res => setTimeout(res, 300)); 
+      }
+
+      if (goldenCoins.length > 0) {
+        const validScores = goldenCoins.map(d => d.score);
+        const meanScore = validScores.reduce((a,b)=>a+b,0) / validScores.length;
+        const stdDevScore = Math.sqrt(validScores.reduce((a,b)=>a+Math.pow(b-meanScore,2),0) / validScores.length) || 1;
+        goldenCoins.forEach(d => d.crossZScore = parseFloat(((d.score - meanScore) / stdDevScore).toFixed(2)));
+        setRadarResults([...goldenCoins].sort((a, b) => b.score - a.score));
+      }
+
+      setRadarStatus(isRadarOpenRef.current ? `雷达扫描完成！捕获 ${goldenCoins.length} 个高潜标的。` : '雷达扫描已中止。');
+    } catch (err) {
+      setRadarStatus('网络节点连接异常，或触发币安限流。');
+    } finally {
+      setIsRadarScanning(false);
+    }
+  };
+
+  const closeRadar = () => {
+    isRadarOpenRef.current = false;
+    setIsRadarOpen(false);
+  };
+
+  const addCoinToRoster = (symbol) => {
+    if (symbol === 'BTCUSDT' || symbol === 'CCI') return;
+    if (!coins.includes(symbol)) handleUpdateCoins([symbol, ...coins]);
+  };
+
+  const generateMacroPoster = async (coinData, aiContent = null) => {
+    if (!coinData) return;
+    setIsGeneratingMacro(true);
+    setMacroPosterData({ data: coinData, aiContent });
+    try {
+      if (!window.html2canvas) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://html2canvas.hertzen.com/dist/html2canvas.min.js';
+          script.onload = resolve; script.onerror = reject; document.head.appendChild(script);
+        });
+      }
+      await new Promise(r => setTimeout(r, 200));
+      const targetDom = document.getElementById('macro-poster-canvas');
+      if (targetDom) {
+        const canvas = await window.html2canvas(targetDom, { scale: 2, backgroundColor: '#030712', useCORS: true, logging: false });
+        setPosterDataUrl(canvas.toDataURL('image/jpeg', 0.95));
+      }
+    } catch (e) {} finally { setIsGeneratingMacro(false); }
+  };
+
+  const generateMicroPoster = async (coinData) => {
+    if (!coinData) return;
+    setIsGeneratingMicro(true);
+    setMicroPosterData(coinData);
+    try {
+      if (!window.html2canvas) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://html2canvas.hertzen.com/dist/html2canvas.min.js';
+          script.onload = resolve; script.onerror = reject; document.head.appendChild(script);
+        });
+      }
+      await new Promise(r => setTimeout(r, 200)); 
+      const targetDom = document.getElementById('micro-poster-canvas');
+      if (targetDom) {
+        const canvas = await window.html2canvas(targetDom, { scale: 2.5, backgroundColor: 'transparent', useCORS: true, logging: false });
+        setPosterDataUrl(canvas.toDataURL('image/jpeg', 0.95));
+      }
+    } catch (e) {} finally { setIsGeneratingMicro(false); setMicroPosterData(null); }
+  };
+
+  const extractTLDR = (text) => {
+    if (!text) return "";
+    const match = text.match(/### 5\..*?\n([\s\S]*)/);
+    if (match && match[1]) return match[1].replace(/[*#-]/g, '').trim();
+    return text.split('\n').filter(l => l.trim() !== '').pop().replace(/[*#-]/g, '').trim();
+  };
+
+  const generateAIReport = async (coinData) => {
+    if (!geminiApiKey) { setAiReportContent("⚠️ 请先配置 Gemini API Key。"); return; }
+    setIsGeneratingReport(true);
+    setAiReportContent(null);
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
+    const systemPrompt = `你是一个全球顶级的加密货币量化交易员和数据分析师，风格毒辣、精准、绝对客观、排除主观情绪。请根据提供的实时量化快照数据，输出一份【星辰 AI 深度推演报告】... (见文档)`;
+    const userData = JSON.stringify({
+      symbol: coinData.actualSymbol, currentPrice: coinData.currentPrice, score: coinData.score,
+      marketEnv: marketEnv ? marketEnv.trend : '未知', metrics: coinData.metrics, plan: coinData.plan,
+      mcResults: coinData.mcResults, buyWall: coinData.buyWall, signals: coinData.signals.map(s => s.text)
+    });
+
+    const payload = { contents: [{ parts: [{ text: `请分析：\n${userData}` }] }], systemInstruction: { parts: [{ text: systemPrompt }] } };
+
+    const fetchWithRetry = async (retries = 5, delay = 1000) => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          if (!res.ok) throw new Error('API Error');
+          const result = await res.json();
+          return result.candidates?.[0]?.content?.parts?.[0]?.text || "暂无结论。";
+        } catch (err) {
+          if (i === retries - 1) throw err;
+          await new Promise(r => setTimeout(r, delay)); delay *= 2; 
+        }
+      }
+    };
+
+    try {
+      const text = await fetchWithRetry();
+      setAiReportContent(text);
+    } catch (err) {
+      setAiReportContent("⚠️ 星际网络受阻，请稍后再试。");
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  };
+
+  const renderMarkdown = (text) => {
+    if (!text) return null;
+    return text.split('\n').map((line, idx) => {
+      if (line.startsWith('### ')) return <h3 key={idx} className="text-sm font-bold text-cyan-400 mt-4 mb-2 flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5"/>{line.replace('### ', '')}</h3>;
+      if (line.startsWith('## ')) return <h2 key={idx} className="text-base font-bold text-indigo-400 mt-4 mb-2">{line.replace('## ', '')}</h2>;
+      if (line.startsWith('# ')) return <h1 key={idx} className="text-lg font-bold text-cyan-400 mt-4 mb-2">{line.replace('# ', '')}</h1>;
+      
+      let formattedLine = line;
+      const isListItem = formattedLine.trim().startsWith('* ') || formattedLine.trim().startsWith('- ');
+      if (isListItem) formattedLine = formattedLine.trim().substring(2);
+
+      const boldRegex = /\*\*(.*?)\*\*/g;
+      const parts = []; let lastIndex = 0; let match;
+      while ((match = boldRegex.exec(formattedLine)) !== null) {
+          parts.push(formattedLine.substring(lastIndex, match.index));
+          parts.push(<strong key={match.index} className="text-indigo-300 font-bold drop-shadow-[0_0_8px_rgba(129,140,248,0.5)]">{match[1]}</strong>);
+          lastIndex = boldRegex.lastIndex;
+      }
+      parts.push(formattedLine.substring(lastIndex));
+      if (formattedLine.trim() === '') return <div key={idx} className="h-1"></div>;
+      return (
+          <div key={idx} className={`mb-1.5 text-xs md:text-sm text-gray-300 leading-relaxed ${isListItem ? 'pl-4 relative' : ''}`}>
+              {isListItem && <span className="absolute left-0 text-cyan-600 font-bold">•</span>}
+              {parts}
+          </div>
+      );
+    });
+  };
+
+  useEffect(() => {
+    scanMarketRef.current = scanMarket;
+  }, [scanMarket]);
+
+  useEffect(() => {
+    setResults([]); 
+    scanMarketRef.current(true); 
+    const scanFreq = klineInterval === '1h' ? 300000 : klineInterval === '4h' ? 900000 : 3600000;
+    const intervalTimer = setInterval(() => { scanMarketRef.current(false); }, scanFreq);
+    return () => clearInterval(intervalTimer);
+  }, [klineInterval, coins.length, tradeDirection]); 
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('[星辰雷达] 侦测到标签页唤醒，强制重启监控阵列与数据流...');
+        scanMarketRef.current(true); 
+        setWakeUpTrigger(prev => prev + 1); 
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
+  // 💓 植入独立脉冲起搏器 (1秒心跳)：强制击碎“数据连线中”停搏幻觉
+  useEffect(() => {
+    const pulseInterval = setInterval(() => {
+      setRadarPulse(p => p + 1);
+    }, 1000);
+    return () => clearInterval(pulseInterval);
+  }, []);
+
+  // V21 订单流内存池衰减机制重构：变为基于时间轴的历史快照
+  useEffect(() => {
+    const historyInterval = setInterval(() => {
+        Object.keys(tickBufferRef.current).forEach(k => {
+            const flow = tickBufferRef.current[k];
+            if (!flow.history) flow.history = [];
+            flow.history.push({ w: flow.whaleCVD, r: flow.retailCVD });
+            if (flow.history.length > 5) flow.history.shift(); // 仅保留最近 5 分钟快照用于微观雷达比对
+        });
+    }, 60000);
+    return () => clearInterval(historyInterval);
+  }, []);
+
+  // 🚀 双核订单流引擎：Binance Payload + Hyperliquid L2 Trades
+  useEffect(() => {
+    let ws;
+    let aggWs;
+    let hlWs;
+    let reconnectTimer;
+    let aggReconnectTimer;
+    let hlReconnectTimer;
+    let isMounted = true;
+
+    const updateTickBuffer = (sym, tradeValue, isTakerSell) => {
+        if (!tickBufferRef.current[sym]) {
+            tickBufferRef.current[sym] = { retailCVD: 0, whaleCVD: 0, lastActivity: Date.now(), history: [] };
+        }
+        const flow = tickBufferRef.current[sym];
+        const directionMultiplier = isTakerSell ? -1 : 1;
+        
+        if (tradeValue < 10000) {
+            flow.retailCVD += (tradeValue * directionMultiplier); 
+        } else if (tradeValue > 50000) {
+            flow.whaleCVD += (tradeValue * directionMultiplier); 
+        }
+        flow.lastActivity = Date.now();
+    };
+
+    const connectWS = () => {
+      if (isLiveMode && results.length > 0) {
+        try {
+          // 1. 币安宏观心跳流 (miniTicker)
+          ws = new WebSocket('wss://stream.binance.com:9443/ws/!miniTicker@arr');
+          ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            const priceMap = {};
+            data.forEach(tick => { 
+              if (coins.includes(tick.s)) {
+                priceMap[tick.s] = parseFloat(tick.c);
+              }
+            });
+            if (Object.keys(priceMap).length > 0) setLivePrices(prev => ({ ...prev, ...priceMap }));
+          };
+          ws.onerror = () => console.warn('[星辰哨兵] 宏观行情心跳阻断...');
+          ws.onclose = () => {
+            if (isMounted && isLiveMode) { clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connectWS, 3000); }
+          };
+
+          // 2. 币安底层订单流 (动态 Payload 模式防溢出断连)
+          const binanceCoins = coins.filter(c => !c.startsWith('HL:') && c !== 'CCI');
+          if (binanceCoins.length > 0) {
+             aggWs = new WebSocket('wss://stream.binance.com:9443/ws');
+             aggWs.onopen = () => {
+                const params = binanceCoins.map(c => `${c.toLowerCase()}@aggTrade`);
+                aggWs.send(JSON.stringify({ method: 'SUBSCRIBE', params: params, id: 1 }));
+             };
+             aggWs.onmessage = (event) => {
+               const payload = JSON.parse(event.data);
+               if (payload.e === 'aggTrade') {
+                 const sym = payload.s;
+                 const price = parseFloat(payload.p);
+                 const qty = parseFloat(payload.q);
+                 const tradeValue = price * qty;
+                 updateTickBuffer(sym, tradeValue, payload.m);
+               }
+             };
+             aggWs.onclose = () => {
+               if (isMounted && isLiveMode) { clearTimeout(aggReconnectTimer); aggReconnectTimer = setTimeout(connectWS, 3000); }
+             };
+          }
+
+          // 3. 链上 Smart Money 雷达：Hyperliquid L2 订单流直连
+          const hlCoins = coins.filter(c => c.startsWith('HL:'));
+          if (hlCoins.length > 0) {
+             hlWs = new WebSocket('wss://api.hyperliquid.xyz/ws');
+             hlWs.onopen = () => {
+                hlCoins.forEach(c => {
+                   const rawName = c.replace('HL:', '').split('/')[0];
+                   hlWs.send(JSON.stringify({ method: 'subscribe', subscription: { type: 'trades', coin: rawName } }));
+                });
+             };
+             hlWs.onmessage = (event) => {
+                const payload = JSON.parse(event.data);
+                if (payload.channel === 'trades' && payload.data) {
+                   const priceMap = {};
+                   payload.data.forEach(trade => {
+                      const matchedSymbol = hlCoins.find(c => c.includes(trade.coin));
+                      if (!matchedSymbol) return;
+                      
+                      const price = parseFloat(trade.px);
+                      const qty = parseFloat(trade.sz);
+                      const tradeValue = price * qty;
+                      // HL 撮合机制: 'B'(Bid/买单被击穿) 代表吃单者(Taker)是在做空卖出
+                      const isTakerSell = trade.side === 'B'; 
+                      
+                      updateTickBuffer(matchedSymbol, tradeValue, isTakerSell);
+                      priceMap[matchedSymbol] = price; // 同步解决 HL 资产界面无心跳价格更新问题
+                   });
+                   if (Object.keys(priceMap).length > 0) setLivePrices(prev => ({ ...prev, ...priceMap }));
+                }
+             };
+             hlWs.onclose = () => {
+               if (isMounted && isLiveMode) { clearTimeout(hlReconnectTimer); hlReconnectTimer = setTimeout(connectWS, 3000); }
+             };
+          }
+
+        } catch (err) {}
+      }
+    };
+
+    connectWS();
+
+    return () => { 
+      isMounted = false;
+      clearTimeout(reconnectTimer); clearTimeout(aggReconnectTimer); clearTimeout(hlReconnectTimer);
+      try { if (ws && ws.readyState !== 3) ws.close(); } catch(e){} 
+      try { if (aggWs && aggWs.readyState !== 3) aggWs.close(); } catch(e){} 
+      try { if (hlWs && hlWs.readyState !== 3) hlWs.close(); } catch(e){} 
+    };
+  }, [isLiveMode, coins, results.length, wakeUpTrigger]);
+
+  const TVChart = ({ data, coinInfo, showHeatmap }) => {
+    const chartContainerRef = useRef();
+    useEffect(() => {
+      if (!chartContainerRef.current || !data) return;
+      let chart; let resizeHandler;
+      const renderChart = () => {
+        if (!window.LightweightCharts || !chartContainerRef.current) return;
+        chartContainerRef.current.innerHTML = '';
+        chart = window.LightweightCharts.createChart(chartContainerRef.current, {
+          layout: { background: { type: 'solid', color: '#131722' }, textColor: '#d1d4dc' },
+          grid: { vertLines: { color: 'rgba(42, 46, 57, 0.5)' }, horzLines: { color: 'rgba(42, 46, 57, 0.5)' } },
+          rightPriceScale: { borderColor: 'rgba(197, 203, 206, 0.8)' },
+          timeScale: { borderColor: 'rgba(197, 203, 206, 0.8)', timeVisible: true },
+          crosshair: { mode: 0 },
+        });
+
+        const candlestickSeries = chart.addCandlestickSeries({ upColor: '#26a69a', downColor: '#ef5350', borderVisible: false, wickUpColor: '#26a69a', wickDownColor: '#ef5350' });
+        candlestickSeries.setData(data);
+
+        if (coinInfo && coinInfo.tdData) {
+           const markers = [];
+           coinInfo.tdData.forEach((td, i) => {
+              if (td.tdCount >= 6 && data[i]) {
+                 markers.push({
+                    time: data[i].time,
+                    position: td.tdType === 'buy' ? 'belowBar' : 'aboveBar',
+                    color: td.tdType === 'buy' ? '#10B981' : '#EF4444',
+                    shape: td.tdType === 'buy' ? 'arrowUp' : 'arrowDown',
+                    text: td.tdCount.toString() + (td.tdCount === 9 && td.isBlocked ? ' 🛑' : '')
+                 });
+              }
+           });
+           candlestickSeries.setMarkers(markers);
+        }
+
+        if (showHeatmap && coinInfo && coinInfo.liqClusters) {
+           coinInfo.liqClusters.forEach(cluster => {
+              candlestickSeries.createPriceLine({
+                 price: cluster.price, color: 'rgba(234, 179, 8, 0.5)', lineWidth: 2, lineStyle: 2, 
+                 axisLabelVisible: true, title: '🔥 50x/100x 爆仓池'
+              });
+           });
+        }
+
+        if (coinInfo && coinInfo.plan) {
+          candlestickSeries.createPriceLine({ price: coinInfo.plan.entryPoint, color: '#06b6d4', lineWidth: 2, lineStyle: 2, axisLabelVisible: true, title: '计划入场' });
+          candlestickSeries.createPriceLine({ price: coinInfo.plan.stopLoss, color: '#ef4444', lineWidth: 2, lineStyle: 1, axisLabelVisible: true, title: '严格止损' });
+          candlestickSeries.createPriceLine({ price: coinInfo.plan.target, color: '#fbbf24', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: '目标' });
+          if (coinInfo.plan.smcOB) {
+            candlestickSeries.createPriceLine({ price: coinInfo.plan.smcOB.top, color: 'rgba(244, 63, 94, 0.7)', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: 'OB Sweep' });
+            candlestickSeries.createPriceLine({ price: coinInfo.plan.smcOB.bottom, color: 'rgba(244, 63, 94, 0.7)', lineWidth: 1, lineStyle: 3, axisLabelVisible: false, title: 'OB Sweep' });
+          }
+        }
+        chart.timeScale().fitContent();
+        resizeHandler = () => { if (chartContainerRef.current && chart) chart.applyOptions({ width: chartContainerRef.current.clientWidth }); };
+        window.addEventListener('resize', resizeHandler);
+      };
+
+      if (!window.LightweightCharts) {
+        const scriptId = 'lightweight-charts-script';
+        let existingScript = document.getElementById(scriptId);
+        if (!existingScript) {
+          const script = document.createElement('script'); script.id = scriptId;
+          script.src = 'https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js';
+          script.async = true; script.onload = renderChart; document.head.appendChild(script);
+        } else existingScript.addEventListener('load', renderChart);
+      } else renderChart();
+      return () => { if (resizeHandler) window.removeEventListener('resize', resizeHandler); if (chart) chart.remove(); };
+    }, [data, coinInfo, showHeatmap]);
+    return <div ref={chartContainerRef} className="w-full h-full" />;
+  };
+
+  const calculatePosition = (entry, stopLoss, totalCap, riskPct) => {
+    const riskAmount = totalCap * (riskPct / 100);
+    const perCoinRisk = Math.abs(entry - stopLoss);
+    if (perCoinRisk <= 0) return { coins: 0, value: 0, riskAmount: 0 };
+    const coinsToBuy = riskAmount / perCoinRisk;
+    return { coins: coinsToBuy.toFixed(4), value: (coinsToBuy * entry).toFixed(2), riskAmount: riskAmount.toFixed(2) };
+  };
+
+  const getZhName = (actualSymbol) => {
+    if (!actualSymbol) return '';
+    const pure = actualSymbol.replace('HL:', '').replace(/\/USDC|USDT|USDC/gi, '').split(':').pop();
+    return ZH_NAMES[pure.toUpperCase()] || '';
+  };
+
+  const handleSearchChange = (e) => {
+    const val = e.target.value; setNewCoin(val);
+    if (!val.trim()) { setSearchResults([]); setShowDropdown(false); return; }
+    const q = val.toUpperCase().replace('HL:', '');
+    const matches = globalAssetList.filter(a => a.name.toUpperCase().includes(q) || a.id.toUpperCase().includes(q) || (a.zhName && a.zhName.includes(val))).slice(0, 8);
+    setSearchResults(matches); setShowDropdown(true);
+  };
+
+  const handleSelectAsset = (asset) => {
+    if (!coins.includes(asset.id)) handleUpdateCoins([asset.id, ...coins]);
+    setNewCoin(''); setShowDropdown(false); setIsMobileSearchOpen(false);
+  };
+
+  const handleAddCoin = (e) => {
+    e.preventDefault();
+    if (showDropdown && searchResults.length > 0) { handleSelectAsset(searchResults[0]); return; }
+    const rawInput = newCoin.trim(); const upperInput = rawInput.toUpperCase();
+    if (!rawInput || upperInput === 'BTC' || upperInput === 'BTCUSDT' || upperInput === 'CCI') { setNewCoin(''); return; }
+    let finalSymbol = upperInput.startsWith('HL:') ? 'HL:' + rawInput.substring(3) : upperInput;
+    if (!finalSymbol.endsWith('USDT') && !finalSymbol.endsWith('USDC') && !finalSymbol.startsWith('HL:')) finalSymbol = `${finalSymbol}USDT`; 
+    if (!coins.includes(finalSymbol)) handleUpdateCoins([finalSymbol, ...coins]);
+    setNewCoin(''); setShowDropdown(false);
+  };
+
+  const removeCoin = (symbolToRemove) => {
+    if (symbolToRemove === 'BTCUSDT' || symbolToRemove === 'CCI') return;
+    handleUpdateCoins(coins.filter(c => c !== symbolToRemove));
+  };
+
+  const handleDirectionClick = (newDir) => {
+    if (newDir === tradeDirection) return;
+    if (marketEnv && hasAutoSetDirectionRef.current) {
+      const regime = marketEnv.regimeType; 
+      let isConflict = false;
+      let msg = '';
+      let recommendedDir = '';
+      
+      if (regime === 'neutral' && newDir !== 'neutral') {
+          isConflict = true;
+          msg = `当前大盘处于 [${marketEnv.trend}] 的混沌周期，强行开启 [${newDir === 'long' ? '做多' : '做空'}] 极易被双向插针打损`;
+          recommendedDir = 'neutral';
+      } else if (regime === 'bear' && newDir === 'long') {
+          isConflict = true;
+          msg = `当前大盘处于 [${marketEnv.trend}]，逆势开启 [做多] 等于空手接飞刀`;
+          recommendedDir = 'short';
+      } else if (regime === 'bull' && newDir === 'short') {
+          isConflict = true;
+          msg = `当前大盘处于 [${marketEnv.trend}]，狂牛中逆势开启 [做空] 极易被单边轧空拉爆`;
+          recommendedDir = 'long';
+      }
+      
+      if (isConflict) {
+        setConflictData({ msg, targetDir: newDir, recommendedDir });
+        setShowConflictWarning(true); 
+        return; 
       }
     }
-    setFn(nextSelection);
-    setFinalPrompt("");
+    setTradeDirection(newDir);
   };
 
-  const getFormattedIngredients = () => {
-     return [...selectedStyles, ...selectedInstruments, ...selectedVocals, ...selectedProduction, ...selectedVibes];
+  const renderRRRWithTooltip = (res) => {
+    const rd = res.rrrDetails;
+    if (!rd) return <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${res.plan.rrr >= 2.5 ? 'bg-green-500/20 text-green-400' : 'bg-gray-800 text-gray-500'}`}>盈亏比 {res.plan.rrr}</span>;
+    return (
+      <div className="relative inline-flex items-center cursor-help" 
+           onMouseEnter={(e) => handleMouseEnterTooltip('rrr', res, e)} 
+           onMouseLeave={handleMouseLeaveTooltip}>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border-b border-dashed border-current transition-colors ${res.plan.rrr >= 2.5 ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30' : 'bg-gray-800 text-gray-400 hover:text-gray-200'}`}>
+          盈亏比 {res.plan.rrr}
+        </span>
+      </div>
+    );
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-pink-500 selection:text-white pb-12 relative overflow-x-hidden">
-      
-      {/* 快捷工具侧栏 (Floating Sidebar) */}
-      <div className="fixed right-0 top-1/3 z-[50] flex flex-col gap-3">
-          <a
-              href="https://lucky-lebkuchen-1f8274.netlify.app/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex items-center bg-slate-900/80 backdrop-blur-md border border-slate-700/80 border-r-0 p-1.5 rounded-l-2xl shadow-[0_0_20px_rgba(0,0,0,0.5)] transition-all duration-300 translate-x-[76px] hover:translate-x-0 cursor-pointer hover:bg-slate-800"
-          >
-              <div className="flex items-center justify-center shrink-0 w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-lg group-hover:shadow-indigo-500/50 group-hover:scale-105 transition-all">
-                  <Wrench size={18} className="text-white" />
-              </div>
-              <div className="flex flex-col px-3 justify-center w-[76px] overflow-hidden">
-                  <span className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider leading-tight">Tool</span>
-                  <span className="text-xs font-bold text-slate-200 whitespace-nowrap leading-tight group-hover:text-white mt-0.5">同音纠正</span>
-              </div>
-          </a>
+    <div className="min-h-screen bg-gray-950 text-gray-100 p-4 md:p-8 font-sans selection:bg-cyan-900 relative">
+      <style>{`
+        @keyframes danmaku-fly { from { left: 100vw; transform: translateX(0); } to { left: 0; transform: translateX(-100%); } }
+        .animate-danmaku { animation: danmaku-fly 8s linear forwards; }
+        @keyframes ticker-scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        .animate-ticker { animation: ticker-scroll 120s linear infinite; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
+        ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.5); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.8); }
+      `}</style>
 
-          {/* 音乐原创本 滑块 */}
-          <a
-              href="https://pan.baidu.com/s/1Q1qj_xaDwUK_rcamBnENdA?pwd=jkdy"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="group flex items-center bg-slate-900/80 backdrop-blur-md border border-slate-700/80 border-r-0 p-1.5 rounded-l-2xl shadow-[0_0_20px_rgba(0,0,0,0.5)] transition-all duration-300 translate-x-[76px] hover:translate-x-0 cursor-pointer hover:bg-slate-800"
-          >
-              <div className="flex items-center justify-center shrink-0 w-10 h-10 bg-gradient-to-br from-teal-400 to-emerald-600 rounded-xl shadow-lg group-hover:shadow-teal-500/50 group-hover:scale-105 transition-all">
-                  <BookOpen size={18} className="text-white" />
-              </div>
-              <div className="flex flex-col px-3 justify-center w-[76px] overflow-hidden">
-                  <span className="text-[10px] text-teal-400 font-bold uppercase tracking-wider leading-tight">Docs</span>
-                  <span className="text-xs font-bold text-slate-200 whitespace-nowrap leading-tight group-hover:text-white mt-0.5">音乐原创本</span>
-              </div>
-          </a>
+      {/* --- 🌟 浮动关于侧边栏 --- */}
+      <div className="fixed right-0 top-1/2 -translate-y-1/2 z-[400] flex items-center group">
+         <div className="bg-gray-800/80 backdrop-blur border border-r-0 border-gray-700 p-2 rounded-l-xl text-gray-500 group-hover:text-cyan-400 transition-colors shadow-[0_0_15px_rgba(0,0,0,0.5)] cursor-pointer">
+            <Info className="w-5 h-5 animate-pulse group-hover:animate-none" />
+         </div>
+         <div className="absolute right-full top-1/2 -translate-y-1/2 mr-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-300 translate-x-4 group-hover:translate-x-0">
+            <div className="bg-gray-950/95 backdrop-blur-xl border border-cyan-500/40 p-4 rounded-2xl shadow-[0_0_30px_rgba(6,182,212,0.15)] flex flex-col gap-3 min-w-[200px]">
+               <div className="text-sm font-bold text-gray-200 flex items-center gap-2 border-b border-gray-800 pb-2 mb-1"><Info className="w-4 h-4 text-cyan-400"/> 工具信息</div>
+               <a href="https://v.douyin.com/xnQQRr52FoU/" target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-cyan-400 transition-colors flex items-center gap-2 bg-gray-900/50 p-2 rounded-lg border border-gray-800 hover:border-cyan-500/30">
+                  <span className="text-base">🎵</span> 抖音原创工具
+               </a>
+               <div className="text-xs text-gray-400 flex items-center gap-2 bg-gray-900/50 p-2 rounded-lg border border-gray-800">
+                  <span className="text-base">💬</span> QQ群: <span className="font-mono text-indigo-400 font-bold tracking-widest ml-1">9123155</span>
+               </div>
+            </div>
+         </div>
+      </div>
 
-          {/* 抖音关注 滑块 (带悬浮二维码) */}
-          <div className="group flex items-center bg-slate-900/80 backdrop-blur-md border border-slate-700/80 border-r-0 p-1.5 rounded-l-2xl shadow-[0_0_20px_rgba(0,0,0,0.5)] transition-all duration-300 translate-x-[76px] hover:translate-x-0 cursor-pointer hover:bg-slate-800 relative">
-              {/* 悬浮二维码卡片 */}
-              <div className="absolute right-full mr-4 top-1/2 -translate-y-1/2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 transform translate-x-4 group-hover:translate-x-0">
-                  <div className="bg-slate-900/95 backdrop-blur-xl border border-pink-500/30 rounded-2xl p-3 shadow-[0_0_30px_rgba(236,72,153,0.3)] flex flex-col items-center gap-2 w-48 relative overflow-hidden">
-                      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-pink-500 to-violet-500"></div>
-                      <img src="b229c667e311981bcf7ac21f357502a1.jpg" onError={(e) => { e.target.style.display = 'none'; }} alt="抖音二维码" className="w-full h-auto rounded-xl border border-slate-700/50" />
-                      <div className="text-center mt-1">
-                          <span className="block text-xs text-pink-300 font-bold mb-0.5">打开抖音扫一扫</span>
-                          <span className="block text-[10px] text-slate-400 leading-tight">获取更多AI音乐灵感</span>
-                      </div>
+      {/* 弹幕浮层区 */}
+      <div className="fixed inset-0 pointer-events-none z-[150] overflow-hidden">
+        {danmakus.map(d => (
+          <div key={d.id} className="absolute whitespace-nowrap text-lg md:text-xl font-black drop-shadow-[0_3px_3px_rgba(0,0,0,0.9)] animate-danmaku flex items-center gap-2" style={{ top: `${d.top}%`, color: d.color, textShadow: '0 0 10px rgba(255,255,255,0.2)' }}>
+            <span className="text-[0.55em] opacity-80 border border-current rounded px-1.5 py-0.5 tracking-widest">{d.region}</span>{d.text}
+          </div>
+        ))}
+      </div>
+
+      <form onSubmit={handleSendDanmaku} className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 bg-gray-900/90 backdrop-blur-md border border-gray-700 p-1.5 px-2 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.5)] transition-all hover:border-indigo-500/50">
+        <button type="button" onClick={() => setIsAlertPanelOpen(true)} className="relative px-3 py-1.5 flex items-center gap-1.5 text-xs font-bold text-gray-300 hover:text-white bg-gray-800 border border-gray-700 hover:border-yellow-500/50 hover:bg-yellow-600/30 rounded-full transition-all">
+          <BellRing className={`w-4 h-4 ${isSentinelRunning ? 'text-yellow-400 animate-pulse' : 'text-gray-500'}`} />
+          <span className="hidden sm:inline">情报局</span>
+          {alerts.length > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border border-gray-900"></span>}
+        </button>
+        <button type="button" onClick={() => setIsHistoryOpen(true)} className="px-3 py-1.5 flex items-center gap-1.5 text-xs font-bold text-gray-300 hover:text-white bg-gray-800 border border-gray-700 hover:border-indigo-500/50 hover:bg-indigo-600/30 rounded-full transition-all">
+          <MessageSquare className="w-4 h-4 text-indigo-400" /><span className="hidden sm:inline">大厅</span>
+        </button>
+        <input type="text" placeholder={ABLY_API_KEY ? "发送全网实时弹幕..." : "(本地) 填 Ably Key"} value={danmakuInput} onChange={(e) => setDanmakuInput(e.target.value)} maxLength={40} className="bg-transparent text-xs sm:text-sm text-gray-200 px-1 sm:px-2 py-1.5 w-32 sm:w-48 md:w-64 focus:outline-none placeholder-gray-500" />
+        <button type="submit" className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-full text-xs font-bold transition-colors flex items-center gap-1.5"><Send className="w-4 h-4" />Biu</button>
+      </form>
+
+      {/* 🚨 侧边异动情报局面板 (Sentinel Alert Drawer) */}
+      {isAlertPanelOpen && (
+        <div className="fixed inset-y-0 right-0 w-80 sm:w-96 bg-gray-950/95 backdrop-blur-2xl border-l border-gray-800 z-[260] flex flex-col shadow-2xl transform transition-transform animate-in slide-in-from-right duration-300">
+          <div className="p-4 pt-16 border-b border-gray-800 flex justify-between items-center bg-gray-900/50">
+            <div>
+              <h3 className="font-bold flex items-center gap-2 text-white"><AlertTriangle className="w-5 h-5 text-yellow-400" /> 24h 异动情报局</h3>
+              <p className="text-[10px] text-gray-500 mt-1">静默巡航哨兵自动捕捉的极端建仓/逃顶标的</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowOnlyStar(!showOnlyStar)} title="只看多周期共振星标" className={`p-1.5 rounded-lg border transition-colors flex items-center justify-center ${showOnlyStar ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50 shadow-[0_0_10px_rgba(234,179,8,0.3)]' : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'}`}>
+                <Sparkles className="w-4 h-4" />
+              </button>
+              <button onClick={() => setIsAlertPanelOpen(false)} className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-gray-800 transition-colors"><X className="w-5 h-5" /></button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 relative">
+            {alerts.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-gray-600 text-sm space-y-4">
+                <Bell className="w-12 h-12 opacity-20" />
+                <p>{isSentinelRunning ? '哨兵巡航中，暂未发现极端异动。' : '哨兵已休眠，请开启静默巡航功能。'}</p>
+              </div>
+            ) : alerts.filter(a => showOnlyStar ? a.isStar : true).length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-gray-600 text-sm space-y-4">
+                <Sparkles className="w-12 h-12 opacity-20" />
+                <p>当前暂无完美共振的星标信号。</p>
+              </div>
+            ) : (
+              alerts.filter(a => showOnlyStar ? a.isStar : true).map((alert) => (
+                <div key={alert.id} className={`text-sm bg-gray-900/50 p-3 rounded-xl border transition-colors cursor-pointer ${alert.isStar ? 'border-yellow-500/30 hover:border-yellow-500/60 shadow-[0_0_15px_rgba(234,179,8,0.1)]' : 'border-gray-800 hover:border-gray-700'}`} onClick={() => { addCoinToRoster(alert.symbol); setIsAlertPanelOpen(false); }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono text-gray-500">{new Date(alert.timestamp).toLocaleTimeString('zh-CN')}</span>
+                    <div className="flex items-center gap-1.5">
+                      {alert.isStar && <span className="text-[9px] px-1.5 py-0.5 rounded border border-yellow-500/50 text-yellow-400 bg-yellow-900/30 animate-pulse flex items-center gap-1"><Sparkles className="w-2.5 h-2.5"/> 完美共振</span>}
+                      <span className={`text-[10px] px-2 py-0.5 rounded border ${alert.type === 'long' ? 'border-green-500/30 text-green-400 bg-green-900/20' : 'border-red-500/30 text-red-400 bg-red-900/20'}`}>
+                        {alert.type === 'long' ? '💎 建仓' : '🚨 逃顶'}
+                      </span>
+                    </div>
                   </div>
-              </div>
+                  <div className="font-bold text-white mb-2">{alert.title}</div>
+                  
+                  {alert.tags && alert.tags.length > 0 && (
+                     <div className="flex flex-wrap gap-1.5 mb-2.5">
+                       {alert.tags.map((tag, tIdx) => {
+                          let colorCls = 'bg-indigo-900/30 border-indigo-500/30 text-indigo-300';
+                          if (tag.includes('1H')) colorCls = 'bg-cyan-900/30 border-cyan-500/30 text-cyan-300';
+                          if (tag.includes('1D')) colorCls = 'bg-orange-900/30 border-orange-500/30 text-orange-300';
+                          if (tag.includes('b型') || tag.includes('铁底')) colorCls = 'bg-emerald-900/30 border-emerald-500/30 text-emerald-400 font-bold';
+                          if (tag.includes('P型') || tag.includes('铁顶')) colorCls = 'bg-rose-900/30 border-rose-500/30 text-rose-400 font-bold';
+                          if (tag.includes('D型')) colorCls = 'bg-indigo-900/30 border-indigo-500/30 text-indigo-400';
+                          if (tag.includes('无')) colorCls = 'bg-gray-800 border-gray-700 text-gray-500';
+                          
+                          // 🚨 逆风警报动态变色逻辑 (Headwind Conflict Color Override)
+                          if (alert.type === 'long' && tag.includes('P型')) {
+                              colorCls = 'bg-red-950 border-red-600 text-red-400 font-black animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.5)]';
+                          } else if (alert.type === 'short' && tag.includes('b型')) {
+                              colorCls = 'bg-red-950 border-red-600 text-red-400 font-black animate-pulse shadow-[0_0_10px_rgba(220,38,38,0.5)]';
+                          }
 
-              <div className="flex items-center justify-center shrink-0 w-10 h-10 bg-gradient-to-br from-pink-500 to-rose-600 rounded-xl shadow-lg group-hover:shadow-pink-500/50 group-hover:scale-105 transition-all">
-                  <Smartphone size={18} className="text-white" />
-              </div>
-              <div className="flex flex-col px-3 justify-center w-[76px] overflow-hidden">
-                  <span className="text-[10px] text-pink-400 font-bold uppercase tracking-wider leading-tight">Follow</span>
-                  <span className="text-xs font-bold text-slate-200 whitespace-nowrap leading-tight group-hover:text-white mt-0.5">抖音关注</span>
-              </div>
+                          return <span key={tIdx} className={`text-[9px] px-1.5 py-0.5 rounded border ${colorCls}`}>{tag}</span>;
+                       })}
+                     </div>
+                  )}
+
+                  <div className="text-gray-400 text-[11px] leading-relaxed mb-3">{alert.desc.replace(/\[.*?\]/g, '').trim()}</div>
+                  
+                  <div className="flex justify-between items-center text-[10px] border-t border-gray-800/50 pt-2">
+                    <span className="font-mono text-gray-500">现价: ${alert.price.toPrecision(5)}</span>
+                    <span className="text-gray-500">V12 得分: <strong className={alert.score >= 70 ? 'text-cyan-400' : 'text-indigo-400'}>{alert.score}</strong></span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
-      </div>
-
-      {/* === Paywall Modal (一机一码授权) === */}
-      {showPaywall && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-            <div className="bg-slate-900 border border-yellow-500/30 rounded-3xl w-full max-w-3xl shadow-2xl relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500"></div>
-                <button onClick={() => setShowPaywall(false)} className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors z-10"><X size={20}/></button>
-                
-                <div className="p-8 text-center">
-                    <div className="w-16 h-16 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-2xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-orange-500/30">
-                        <Zap size={32} className="text-white" />
-                    </div>
-                    <h2 className="text-2xl font-black text-white mb-2">炼金算力已耗尽</h2>
-                    <p className="text-slate-400 mb-8">您当前的免费使用次数已用完。本项目由个人开发者维护，欢迎通过捐赠获取永久使用权限。</p>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
-                        {/* 左侧：闲鱼引导区 */}
-                        <div className="bg-slate-950 border border-slate-800 rounded-2xl p-6 hover:border-yellow-500/50 transition-all flex flex-col h-full relative group shadow-[0_0_20px_rgba(0,0,0,0.5)]">
-                            <div className="absolute -top-3 left-6 bg-yellow-500 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider text-slate-900 shadow-lg">Step 1. 闲鱼获取捐赠码</div>
-                            <h3 className="text-lg font-bold text-slate-200 mb-1 mt-2">开发者捐赠包</h3>
-                            <div className="text-3xl font-black text-white mb-4">¥99<span className="text-sm font-normal text-slate-500"> / 终身永久版</span></div>
-                            <ul className="space-y-2 mb-6 flex-grow">
-                                <li className="text-xs text-slate-400 flex items-center gap-2"><Sparkles size={12} className="text-yellow-400"/> 复制下方机器码，发给闲鱼掌柜</li>
-                                <li className="text-xs text-slate-400 flex items-center gap-2"><Sparkles size={12} className="text-yellow-400"/> <span className="text-pink-400 font-bold">重要：</span>请主动提供您的【闲鱼会员名】以便售后重置</li>
-                                <li className="text-xs text-slate-400 flex items-center gap-2"><Sparkles size={12} className="text-yellow-400"/> 拍下后将在聊天窗口获取专属激活凭证</li>
-                            </ul>
-                            <div className="bg-black/50 p-3 rounded-lg border border-slate-800 mb-4 text-center">
-                                <p className="text-[10px] text-slate-500 mb-1">您的机器码 (Device ID)</p>
-                                <code className="text-lg font-mono font-bold text-yellow-400 select-all">{deviceId}</code>
-                            </div>
-                            <button 
-                                onClick={() => {
-                                    const searchKeyword = "星辰妙漫音乐炼金台"; 
-                                    const textArea = document.createElement("textarea");
-                                    textArea.value = searchKeyword;
-                                    document.body.appendChild(textArea);
-                                    textArea.select();
-                                    try {
-                                        document.execCommand('copy');
-                                        setToastMessage("✅ 已复制搜索口令！请打开【闲鱼APP】粘贴搜索。");
-                                        setTimeout(() => setToastMessage(""), 3000);
-                                    } catch (err) {
-                                        setToastMessage(`复制失败，请手动在闲鱼搜索: ${searchKeyword}`);
-                                        setTimeout(() => setToastMessage(""), 3000);
-                                    }
-                                    document.body.removeChild(textArea);
-                                }}
-                                className="w-full py-3 rounded-xl bg-yellow-500 hover:bg-yellow-400 text-slate-900 text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-yellow-500/20 group-hover:scale-[1.02]"
-                            >
-                                <Copy size={16} /> 复制闲鱼搜索口令
-                            </button>
-                        </div>
-
-                        {/* 右侧：卡密兑换区 */}
-                        <div className="bg-slate-950 border border-purple-500/50 rounded-2xl p-6 hover:border-purple-400 transition-all flex flex-col h-full relative group shadow-[0_0_30px_rgba(168,85,247,0.1)]">
-                            <div className="absolute -top-3 left-6 bg-gradient-to-r from-purple-600 to-pink-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider text-white shadow-lg">Step 2. 激活捐赠凭证</div>
-                            <h3 className="text-lg font-bold text-purple-300 mb-1 mt-2 flex items-center gap-2">使用激活码</h3>
-                            <p className="text-xs text-slate-400 mb-6 flex-grow">如果您已在闲鱼通过捐赠获取了包含 <strong>XCMM-PRO-</strong> 前缀的凭证码，请在此处输入以永久激活。</p>
-                            
-                            <div className="flex flex-col gap-3">
-                                <input 
-                                    type="text" 
-                                    value={redeemCode}
-                                    onChange={(e) => setRedeemCode(e.target.value)}
-                                    placeholder="例如: XCMM-PRO-..." 
-                                    className="w-full bg-black/50 border border-slate-700 rounded-xl px-4 py-3 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-purple-500/50 font-mono text-sm uppercase"
-                                />
-                                <button 
-                                    onClick={() => handleRedeemCode(redeemCode)}
-                                    disabled={isRedeeming}
-                                    className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-purple-500/25 group-hover:scale-[1.02] disabled:opacity-50"
-                                >
-                                    {isRedeeming ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
-                                    {isRedeeming ? "正在校验云端..." : "验证捐赠并激活"}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <p className="text-[10px] text-slate-600 mt-6 flex items-center justify-center gap-1">
-                        <Lock size={10}/> 捐赠与激活通过云端一机一码安全校验。
-                    </p>
-                </div>
-            </div>
         </div>
       )}
 
-      {/* === Settings Modal === */}
-      {showSettings && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl relative p-6">
-                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-                    <Settings className="text-blue-400" size={20} />
-                    本地 API 配置 (Local Config)
-                </h3>
-                
-                <div className="space-y-4">
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-400 uppercase">API 供应商 (Provider)</label>
-                        <div className="flex gap-2">
-                            <button 
-                                onClick={() => handleProviderSwitch('gemini')}
-                                className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all border ${tempApiProvider === 'gemini' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
-                            >
-                                Google Gemini
-                            </button>
-                            <button 
-                                onClick={() => handleProviderSwitch('qwen')}
-                                className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all border ${tempApiProvider === 'qwen' ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}
-                            >
-                                阿里千问 (Qwen)
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-400 uppercase">API Key</label>
-                        <div className="relative">
-                            <input 
-                                type="password" 
-                                value={tempApiKey}
-                                onChange={(e) => setTempApiKey(e.target.value)}
-                                placeholder="输入您的 API Key..."
-                                className="w-full bg-black/50 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all pl-10 text-sm"
-                            />
-                            <Key size={16} className="absolute left-3 top-3 text-slate-500" />
-                        </div>
-                        <p className="text-[10px] text-slate-500">密钥仅保存在浏览器 localStorage 中，不会上传服务器。</p>
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-400 uppercase">API Base URL (接口地址)</label>
-                        <div className="relative">
-                            <input 
-                                type="text" 
-                                value={tempApiUrl}
-                                onChange={(e) => setTempApiUrl(e.target.value)}
-                                placeholder={tempApiProvider === 'qwen' ? "默认: https://dashscope.aliyuncs.com/compatible-mode/v1" : "默认: https://generativelanguage.googleapis.com"}
-                                className="w-full bg-black/50 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all pl-10 text-sm"
-                            />
-                            <Link2 size={16} className="absolute left-3 top-3 text-slate-500" />
-                        </div>
-                        <p className="text-[10px] text-slate-500">{tempApiProvider === 'qwen' ? "默认使用阿里云百炼 OpenAI 兼容接口地址。" : "如遇跨域 (CORS) 或网络阻断，可修改为自定义反向代理地址 (如 /gemini-api)。"}</p>
-                    </div>
-
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-400 uppercase">AI 模型 (Model Name)</label>
-                        <div className="relative">
-                            <input 
-                                type="text" 
-                                value={tempApiModel}
-                                onChange={(e) => setTempApiModel(e.target.value)}
-                                placeholder={tempApiProvider === 'qwen' ? "默认: qwen-plus" : "默认: gemini-2.5-flash"}
-                                className="w-full bg-black/50 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all pl-10 text-sm"
-                            />
-                            <Bot size={16} className="absolute left-3 top-3 text-slate-500" />
-                        </div>
-                        <p className="text-[10px] text-slate-500">{tempApiProvider === 'qwen' ? "可更改为 qwen-turbo, qwen-max 等模型。" : "可更改为 gemini-1.5-pro-latest 或 gemini-2.0-flash 等可用模型。"}</p>
-                    </div>
+      <div className="max-w-7xl mx-auto space-y-6 mt-1.5">
+        
+        <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-gray-800 pb-3">
+          {/* 左侧：Logo 与多空阵列 */}
+          <div className="flex items-center gap-2 shrink-0">
+            <h1 className="text-lg md:text-2xl font-bold tracking-tight flex items-center gap-2">
+              <div className="relative group cursor-pointer">
+                <div className="absolute -inset-1 bg-gradient-to-r from-cyan-400 to-indigo-500 rounded-full blur opacity-40 group-hover:opacity-70 transition duration-500"></div>
+                <div className="relative bg-gray-950 p-1 md:p-1.5 rounded-full border border-cyan-500/30">
+                  <Bitcoin className="w-5 h-5 md:w-6 md:h-6 text-cyan-400" />
                 </div>
-
-                <div className="mt-8 pt-4 border-t border-slate-800 flex flex-col gap-4">
-                    {apiTestStatus && (
-                        <div className={`p-3 rounded-xl text-xs flex items-center gap-2 border ${apiTestStatus === 'success' ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
-                            {apiTestStatus === 'success' ? <ShieldCheck size={16} className="shrink-0" /> : <X size={16} className="shrink-0" />}
-                            <span className="break-all">{String(apiTestMessage)}</span>
-                        </div>
-                    )}
-                    <div className="flex justify-between items-center">
-                        <button 
-                            onClick={testApiConnection} 
-                            disabled={isTestingApi || !tempApiKey}
-                            className="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 text-sm font-bold transition-all flex items-center gap-2 disabled:opacity-50"
-                        >
-                            {isTestingApi ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} className={tempApiKey ? "text-yellow-400" : "text-slate-500"} />}
-                            测试连通性
-                        </button>
-                        <div className="flex gap-3">
-                            <button onClick={() => setShowSettings(false)} className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-bold transition-all">取消</button>
-                            <button onClick={saveSettings} className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition-all shadow-lg shadow-blue-600/20">保存配置</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-      )}
-
-      {/* === Auth Modal (登录/注册) === */}
-      {showAuthModal && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-            <div className="bg-slate-900 border border-blue-500/30 rounded-2xl w-full max-w-sm shadow-2xl relative overflow-hidden p-6">
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 to-indigo-500"></div>
-                <button onClick={() => { setShowAuthModal(false); setPendingAction(null); }} className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors z-10"><X size={20}/></button>
-                
-                <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                    <User className="text-blue-400" size={24} />
-                    {isLoginMode ? '云端账号登录' : '注册新账号'}
-                </h3>
-                
-                <form onSubmit={handleAuthSubmit} className="space-y-4">
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-400 uppercase">邮箱 (Email)</label>
-                        <div className="relative">
-                            <input 
-                                type="email" 
-                                required
-                                value={authEmail}
-                                onChange={(e) => setAuthEmail(e.target.value)}
-                                placeholder="your@email.com"
-                                className="w-full bg-black/50 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all pl-10 text-sm"
-                            />
-                            <User size={16} className="absolute left-3 top-3 text-slate-500" />
-                        </div>
-                    </div>
-                    
-                    <div className="space-y-2">
-                        <label className="text-xs font-bold text-slate-400 uppercase">密码 (Password)</label>
-                        <div className="relative">
-                            <input 
-                                type="password" 
-                                required
-                                minLength={6}
-                                value={authPassword}
-                                onChange={(e) => setAuthPassword(e.target.value)}
-                                placeholder="******"
-                                className="w-full bg-black/50 border border-slate-700 rounded-xl px-4 py-2.5 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all pl-10 text-sm"
-                            />
-                            <KeyRound size={16} className="absolute left-3 top-3 text-slate-500" />
-                        </div>
-                    </div>
-
-                    <div className="pt-2">
-                        <button 
-                            type="submit"
-                            disabled={authLoading}
-                            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 disabled:opacity-50"
-                        >
-                            {authLoading ? <Loader2 size={16} className="animate-spin" /> : (isLoginMode ? <LogIn size={16} /> : <User size={16} />)}
-                            {isLoginMode ? '立即登录' : '注册账号'}
-                        </button>
-                    </div>
-                </form>
-                
-                <div className="mt-4 text-center">
-                    <button 
-                        onClick={() => setIsLoginMode(!isLoginMode)} 
-                        className="text-xs text-slate-400 hover:text-blue-400 transition-colors"
-                    >
-                        {isLoginMode ? '没有账号？点击注册新账号' : '已有账号？点击此处登录'}
-                    </button>
-                </div>
-                
-                <div className="mt-6 p-3 bg-slate-950 rounded-lg border border-slate-800">
-                    <p className="text-[10px] text-slate-500 leading-relaxed">
-                        <Info size={12} className="inline mr-1 text-blue-400" />
-                        登录云端账号后，您的激活码将与该账号永久绑定。未来在任何设备上只需登录此账号即可自动恢复 PRO 权限，且无需同步您的本地 API Key。
-                    </p>
-                </div>
-            </div>
-        </div>
-      )}
-
-      {/* 歌词优化结果 Modal */}
-      {showLyricsModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
-                <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900 z-10 shrink-0">
-                    <h3 className="font-bold text-white flex items-center gap-2">
-                        <FileMusic className="text-indigo-400" size={18} />
-                        AI 结构优化建议 (Structure Enhanced)
-                        <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30 font-normal ml-2 tracking-wide hidden sm:inline-block">可直接编辑修改</span>
-                    </h3>
-                    <button onClick={() => setShowLyricsModal(null)} className="text-slate-500 hover:text-white transition-colors"><X size={18}/></button>
-                </div>
-                
-                {/* 替换为可编辑的 textarea */}
-                <div className="p-4 bg-black/40 flex-1 overflow-hidden relative group">
-                    <textarea 
-                        value={String(showLyricsModal)}
-                        onChange={(e) => setShowLyricsModal(e.target.value)}
-                        placeholder="在这里可以进行最后的歌词与标签微调..."
-                        spellCheck="false"
-                        className="w-full h-full text-xs text-slate-300 font-mono whitespace-pre-wrap leading-relaxed bg-transparent border border-slate-700/50 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none custom-scrollbar transition-all"
-                    />
-                    <div className="absolute top-6 right-6 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
-                        <span className="text-[10px] text-slate-500 bg-black/50 px-2 py-1 rounded backdrop-blur-sm">编辑内容会自动同步至截图</span>
-                    </div>
-                </div>
-
-                <div className="p-4 border-t border-slate-800 flex justify-end gap-3 bg-slate-900 z-10 shrink-0">
-                    <button 
-                        onClick={generateShareImage}
-                        disabled={isGeneratingImage}
-                        className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-pink-500/20 disabled:opacity-50"
-                    >
-                        {isGeneratingImage ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />} 
-                        {isGeneratingImage ? "渲染中..." : "📸 生成企划长图"}
-                    </button>
-                    <button 
-                        onClick={() => copyToClipboard(showLyricsModal)}
-                        className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white text-xs font-bold transition-all flex items-center gap-2"
-                    >
-                        <Copy size={14} /> 纯文本复制
-                    </button>
-                </div>
-            </div>
-
-            {/* 隐藏的超清渲染舱 (只在截图时被读取) */}
-            <div id="share-image-node" style={{ position: 'absolute', left: '-9999px', top: 0, width: '640px', padding: '40px', background: 'linear-gradient(135deg, #020617 0%, #0f172a 50%, #1e1b4b 100%)', color: '#cbd5e1', fontFamily: 'sans-serif' }}>
-                {/* 海报头部 */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '25px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '25px' }}>
-                    <div style={{ background: 'linear-gradient(135deg, #6366f1, #ec4899)', padding: '12px', borderRadius: '14px', boxShadow: '0 10px 20px rgba(236,72,153,0.3)' }}>
-                        <Sparkles size={28} color="white" />
-                    </div>
-                    <div>
-                        <h1 style={{ margin: 0, fontSize: '28px', fontWeight: '900', color: '#fff', letterSpacing: '1px' }}>星辰妙漫 炼金师 AI</h1>
-                        <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#94a3b8', letterSpacing: '2px', textTransform: 'uppercase' }}>Suno 工业级编曲排版企划案</p>
-                    </div>
-                </div>
-                
-                {/* 高亮歌词内容 */}
-                <div 
-                    style={{ whiteSpace: 'pre-wrap', fontSize: '15px', lineHeight: '1.9', fontFamily: 'monospace', color: '#e2e8f0' }} 
-                    dangerouslySetInnerHTML={getHighlightedLyrics(showLyricsModal)} 
-                />
-                
-                {/* 海报底部引流信息 */}
-                <div style={{ marginTop: '40px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Bot size={14} color="#64748b" />
-                        <span style={{ fontSize: '12px', color: '#64748b' }}>Generated by xcmm.org</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span style={{ fontSize: '12px', color: '#38bdf8', fontWeight: 'bold', background: 'rgba(56,189,248,0.1)', padding: '4px 8px', borderRadius: '4px' }}>AI 音乐灵感发生器</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-      )}
-
-      {/* Toast */}
-      {toastMessage && (
-        <div className="fixed top-24 right-6 z-50 bg-slate-800/90 border border-blue-500/50 text-blue-200 px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300 backdrop-blur-md max-w-sm">
-            <Link2 size={18} className="text-blue-400 shrink-0" />
-            <span className="text-xs font-medium leading-snug">{String(toastMessage)}</span>
-            <button onClick={() => setToastMessage("")} className="ml-auto text-slate-500 hover:text-white"><X size={14}/></button>
-        </div>
-      )}
-
-      {/* Header */}
-      <header className="bg-slate-900 border-b border-slate-800 py-4 shadow-lg sticky top-0 z-20">
-        <div className="w-full max-w-[1920px] mx-auto px-4 md:px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-2 rounded-lg shadow-lg shadow-purple-500/20"><Sparkles size={20} className="text-white" fill="currentColor" /></div>
-            <div className="flex items-baseline gap-2"><h1 className="text-xl md:text-2xl xl:text-3xl font-black tracking-tight bg-gradient-to-r from-pink-400 via-purple-400 to-indigo-400 bg-clip-text text-transparent">星辰妙漫 炼金师 AI</h1><span className="text-[10px] text-slate-500 font-mono border border-slate-700 rounded-full px-1.5 py-0.5">v4.0 Local</span></div>
-          </div>
-          
-          <div className="flex gap-2 items-center flex-wrap justify-end">
-            <div className="flex items-center bg-slate-800 rounded-lg p-1 border border-slate-700 ml-4 mr-2">
-              <button onClick={handleZoomOut} className="p-1 hover:text-white text-slate-400"><ZoomOut size={14}/></button>
-              <span className="text-[10px] w-8 text-center text-slate-400">{Math.round(zoomLevel * 100)}%</span>
-              <button onClick={handleZoomIn} className="p-1 hover:text-white text-slate-400"><ZoomIn size={14}/></button>
-            </div>
+              </div>
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500">星辰妙漫炒币器</span>
+            </h1>
             
-            {/* PRO 状态展示 */}
-            {isPro ? (
-                <div className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-bold shadow-[0_0_10px_rgba(168,85,247,0.2)] mr-1">
-                    <Crown size={14} /> 终身永久版
-                </div>
-            ) : (
-                <button onClick={handleOpenPaywall} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 text-xs font-bold hover:bg-slate-700 hover:text-white transition-all mr-1">
-                    <Zap size={14} className="text-yellow-500" /> 试用 {credits} 次
-                </button>
+            <div className="flex bg-gray-900 border border-gray-800 rounded-lg p-0.5 ml-1 md:ml-2 shadow-inner">
+              <button onClick={() => handleDirectionClick('long')} className={`px-2.5 py-1 rounded-md text-[10px] md:text-xs font-bold transition-all ${tradeDirection === 'long' ? 'bg-green-500/20 text-green-400 shadow-[0_0_10px_rgba(34,197,94,0.2)]' : 'text-gray-500 hover:text-gray-300'}`}>📈 做多</button>
+              <button onClick={() => handleDirectionClick('neutral')} className={`px-2.5 py-1 rounded-md text-[10px] md:text-xs font-bold transition-all ${tradeDirection === 'neutral' ? 'bg-indigo-500/20 text-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.2)]' : 'text-gray-500 hover:text-gray-300'}`}>🛡️ 观望</button>
+              <button onClick={() => handleDirectionClick('short')} className={`px-2.5 py-1 rounded-md text-[10px] md:text-xs font-bold transition-all ${tradeDirection === 'short' ? 'bg-red-500/20 text-red-400 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'text-gray-500 hover:text-gray-300'}`}>📉 做空</button>
+            </div>
+            {marketEnv && (
+              <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-[9px] md:text-[10px] font-bold border ${marketEnv.color} border-current/30 bg-current/10 hidden xl:flex`}>
+                <Globe className="w-3 h-3" />{marketEnv.trend}
+              </span>
             )}
-
-            {/* 云端账号模块 */}
-            {(!user || user.isAnonymous) ? (
-                <button onClick={() => setShowAuthModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all text-xs border bg-slate-800 border-slate-700 text-slate-300 hover:bg-blue-600 hover:border-blue-500 hover:text-white mr-2">
-                    <User size={14} /> <span>登录 / 注册</span>
-                </button>
-            ) : (
-                <div className="flex items-center gap-2 mr-2 bg-slate-800/50 rounded-lg pl-3 pr-1 py-1 border border-slate-700">
-                    <span className="text-[10px] text-slate-400 max-w-[80px] truncate" title={user.email}>{user.email}</span>
-                    <button onClick={handleLogout} className="flex items-center gap-1 p-1.5 rounded-md bg-slate-800 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition-colors border border-transparent hover:border-red-500/30" title="登出本地授权">
-                        <LogOut size={12} />
-                    </button>
-                </div>
-            )}
-
-             {/* API 配置按钮 */}
-             <button onClick={openSettings} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold transition-all text-xs border ${!userApiKey ? 'bg-amber-500/10 border-amber-500/50 text-amber-400 animate-pulse' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-white'}`}><Settings size={14} /> <span>API 配置</span></button>
-
-             <button onClick={() => setIsSmartLinkageEnabled(!isSmartLinkageEnabled)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold transition-all text-xs border ${isSmartLinkageEnabled ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.2)]' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-white'}`} title="开启后，选中风格会自动关联对应的特色乐器和制作手法"><Link2 size={14} /> <span>{isSmartLinkageEnabled ? '关联开启' : '关联关闭'}</span></button>
-             <button onClick={() => setIsAiPanelOpen(!isAiPanelOpen)} className={`flex items-center gap-2 px-4 py-1.5 rounded-full font-bold shadow-lg transition-all transform active:scale-95 text-xs ring-2 ring-blue-500/20 ${isAiPanelOpen ? 'bg-blue-600 text-white' : 'bg-slate-800 text-blue-400 hover:bg-slate-700'}`}><BrainCircuit size={14} /> <span>AI 炼金</span></button>
-             <div className="w-[1px] h-6 bg-slate-700 mx-1"></div>
-             <button onClick={() => setIsChinaLocked(!isChinaLocked)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold transition-all text-xs border ${isChinaLocked ? 'bg-amber-500/10 border-amber-500/50 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.2)]' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-white'}`}><Gem size={14} /> <span>{isChinaLocked ? '中华炼金 ON' : '中华炼金'}</span></button>
-             <button onClick={() => setIsBaseLocked(!isBaseLocked)} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold transition-all text-xs border ${isBaseLocked ? 'bg-red-500/10 border-red-500/50 text-red-400 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-white'}`}><Lock size={14} /> <span>{isBaseLocked ? '基调已锁' : '基调锁定'}</span></button>
-             <button onClick={clearAll} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors text-xs font-medium border border-slate-700"><RefreshCw size={14} /> 重置</button>
-            <button onClick={generateSmartMix} disabled={isSmartMixing || isAnimating} className={`flex items-center gap-2 px-4 py-1.5 rounded-full font-bold shadow-lg transition-all transform active:scale-95 text-xs ${isSmartMixing ? 'bg-indigo-700 cursor-wait' : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white'}`}>{isSmartMixing ? <Loader2 size={14} className="animate-spin" /> : <Bot size={14} />} <span>智能融合</span></button>
-            <button onClick={handleMainMixButtonClick} disabled={isSmartMixing || isAnimating} className={`flex items-center gap-2 px-4 py-1.5 rounded-full font-bold shadow-lg transition-all transform active:scale-95 text-xs relative overflow-hidden group ${isStrategyLinked ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white ring-2 ring-blue-500/30' : 'bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white'}`}>{isAnimating ? <Loader2 size={14} className="animate-spin" /> : (isStrategyLinked ? <FlaskConical size={14} /> : <Dice5 size={14} />)}<span>{isStrategyLinked ? '策略融合' : '随机融合'}</span>{isStrategyLinked && <span className="absolute inset-0 bg-white/10 group-hover:bg-white/20 transition-colors pointer-events-none"></span>}</button>
           </div>
-        </div>
-      </header>
 
-      {/* AI Alchemy Lab */}
-      <div className={`overflow-hidden transition-all duration-500 ease-in-out ${isAiPanelOpen ? 'max-h-[2500px] opacity-100' : 'max-h-0 opacity-0'}`}>
-        <div className="w-full max-w-[1920px] mx-auto px-4 md:px-6 mt-6">
-            <div className="bg-slate-900/90 border border-blue-500/30 rounded-2xl shadow-2xl p-4 md:p-6">
-                
-                {/* 模式切换 Tab */}
-                <div className="flex gap-2 mb-4 bg-slate-950/50 p-1 rounded-lg border border-slate-700/50 w-fit">
-                    <button onClick={() => setAiMode('inspiration')} className={`px-4 py-1.5 rounded-md text-xs md:text-sm font-bold transition-all flex items-center gap-2 ${aiMode === 'inspiration' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
-                        <Sparkles size={14} /> ✨ 画面灵感
-                    </button>
-                    <button onClick={() => setAiMode('lyrics')} className={`px-4 py-1.5 rounded-md text-xs md:text-sm font-bold transition-all flex items-center gap-2 ${aiMode === 'lyrics' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
-                        <FileMusic size={14} /> 🎵 歌词结构
-                    </button>
-                    <button onClick={() => setAiMode('enhancer')} className={`px-4 py-1.5 rounded-md text-xs md:text-sm font-bold transition-all flex items-center gap-2 ${aiMode === 'enhancer' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
-                        <PenLine size={14} /> 📝 润色扩写
-                    </button>
-                </div>
+          {/* 中间：内嵌式极简走马灯 (Ticker Tape) - 零空间侵占 */}
+          <div className="flex-1 w-full lg:w-auto relative bg-gray-900/40 rounded-lg border border-gray-800/50 overflow-hidden flex items-center h-8 lg:mx-3 shadow-inner">
+             <div className="absolute left-0 z-20 flex items-center h-full px-2.5 bg-gray-950/95 border-r border-gray-800/50 backdrop-blur-md">
+               <BellRing className={`w-3.5 h-3.5 ${isSentinelRunning ? 'text-yellow-400 animate-pulse' : 'text-gray-600'}`} />
+             </div>
+             <div className="absolute left-[34px] z-10 w-8 h-full bg-gradient-to-r from-gray-950/95 to-transparent pointer-events-none"></div>
 
-                <div className="flex flex-col gap-4">
-                    <div className="flex justify-between items-center">
-                        <h3 className="font-bold text-white text-base md:text-lg flex items-center gap-2">
-                           {aiMode === 'inspiration' ? '描述你的灵感 (Describe Inspiration)' : aiMode === 'lyrics' ? '分析你的歌词 (Analyze Lyrics)' : '核心意图扩写 (Prompt Enhancer)'}
-                        </h3>
-                        <button onClick={() => setIsAiPanelOpen(false)} className="text-slate-500 hover:text-white"><X size={18}/></button>
-                    </div>
-                    
-                    <div className="flex flex-col gap-3">
-                        <textarea
-                            value={aiPrompt}
-                            onChange={(e) => setAiPrompt(e.target.value)}
-                            placeholder={
-                                aiMode === 'inspiration' ? "例如：赛博朋克雨夜，失恋侦探在喝威士忌..." :
-                                aiMode === 'lyrics' ? "粘贴你的歌词和段落结构（例如 [Verse], [Chorus]）..." :
-                                "输入你的核心描述（例如：世界民族特色乐器混中国特色乐器），AI 将基于此进行创意扩散..."
-                            }
-                            className="w-full h-32 bg-black/40 border border-slate-700 rounded-xl p-3 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none text-base md:text-lg transition-all font-mono"
-                        />
-                        
-                        {aiMode === 'lyrics' && (
-                            <div className="flex flex-col gap-3 animate-in fade-in duration-300">
-                                <input 
-                                    type="text"
-                                    value={aiIntent}
-                                    onChange={(e) => setAiIntent(e.target.value)}
-                                    placeholder="🎼 选填：你的制作意图 (例如: 主歌R&B铺垫，副歌突变至昆曲与重金属)"
-                                    className="w-full bg-black/40 border border-slate-700 rounded-xl p-3 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-sm transition-all font-sans"
-                                />
-                                
-                                <div className="flex flex-wrap gap-2 items-center justify-between">
-                                    <button 
-                                        onClick={generateBlueprint}
-                                        disabled={isGeneratingBlueprint || !aiPrompt.trim()}
-                                        className="px-4 py-2 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 text-xs font-bold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        {isGeneratingBlueprint ? <Loader2 size={14} className="animate-spin" /> : <Lightbulb size={14} />}
-                                        先出个编排大纲 (AI Blueprint)
-                                    </button>
-                                </div>
-
-                                {/* MIXX POP 极限过载控制台 */}
-                                <div className="bg-black/30 border border-slate-700/50 rounded-xl p-3 flex flex-col gap-2 animate-in fade-in duration-300">
-                                    <div className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1.5">
-                                        <Flame size={12} className="text-red-500" />
-                                        MIXX POP 八门遁甲控制台 (独立测试)
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        <button onClick={() => setMixxPopBpm(!mixxPopBpm)} className={`px-2.5 py-1.5 rounded md:text-xs text-[10px] font-bold transition-all border ${mixxPopBpm ? 'bg-red-900/50 border-red-500 text-red-300 shadow-[0_0_10px_rgba(239,68,68,0.3)]' : 'bg-slate-800/50 border-slate-700 text-slate-500 hover:text-slate-300'}`} title="在硬切处强制加入 [Tempo Shift] / [Double-time] 造成速度撕裂">
-                                            ⏱️ BPM 断层 {mixxPopBpm ? 'ON' : 'OFF'}
-                                        </button>
-                                        <button onClick={() => setMixxPopVocal(!mixxPopVocal)} className={`px-2.5 py-1.5 rounded md:text-xs text-[10px] font-bold transition-all border ${mixxPopVocal ? 'bg-orange-900/50 border-orange-500 text-orange-300 shadow-[0_0_10px_rgba(249,115,22,0.3)]' : 'bg-slate-800/50 border-slate-700 text-slate-500 hover:text-slate-300'}`} title="主歌强制呢喃/气声，副歌强制嘶吼/快嘴，唱腔极度反差">
-                                            🗣️ 唱腔分裂 {mixxPopVocal ? 'ON' : 'OFF'}
-                                        </button>
-                                        <button onClick={() => setMixxPopDrop(!mixxPopDrop)} className={`px-2.5 py-1.5 rounded md:text-xs text-[10px] font-bold transition-all border ${mixxPopDrop ? 'bg-amber-900/50 border-amber-500 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.3)]' : 'bg-slate-800/50 border-slate-700 text-slate-500 hover:text-slate-300'}`} title="使用 (Deep breath... 1, 2!) 和 Massive Bass Drop 打造极具张力的坠落感">
-                                            📉 黄金坠落 {mixxPopDrop ? 'ON' : 'OFF'}
-                                        </button>
-                                        <button onClick={() => setMixxPopInst(!mixxPopInst)} className={`px-2.5 py-1.5 rounded md:text-xs text-[10px] font-bold transition-all border ${mixxPopInst ? 'bg-rose-900/50 border-rose-500 text-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.3)]' : 'bg-slate-800/50 border-slate-700 text-slate-500 hover:text-slate-300'}`} title="在副歌后独立插入一段极其洗脑的纯器乐 Solo 段落">
-                                            🎸 器乐 Hook {mixxPopInst ? 'ON' : 'OFF'}
-                                        </button>
-                                        <button onClick={() => setMixxPopSyllable(!mixxPopSyllable)} className={`px-2.5 py-1.5 rounded md:text-xs text-[10px] font-bold transition-all border ${mixxPopSyllable ? 'bg-fuchsia-900/50 border-fuchsia-500 text-fuchsia-300 shadow-[0_0_10px_rgba(217,70,239,0.3)]' : 'bg-slate-800/50 border-slate-700 text-slate-500 hover:text-slate-300'}`} title="强制副歌改写为三字经或单字弹射，利用物理字数差异逼迫 Suno 加速">
-                                            ✂️ 字数切割 {mixxPopSyllable ? 'ON' : 'OFF'}
-                                        </button>
-                                        <button onClick={() => setMixxPopAntiDrop(!mixxPopAntiDrop)} className={`px-2.5 py-1.5 rounded md:text-xs text-[10px] font-bold transition-all border ${mixxPopAntiDrop ? 'bg-cyan-900/50 border-cyan-500 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.3)]' : 'bg-slate-800/50 border-slate-700 text-slate-500 hover:text-slate-300'}`} title="放弃传统的重低音轰炸，使用极简气声的反高潮，或插入长达15秒的无歌词纯电音跳舞段落">
-                                            🕳️ 反高潮 {mixxPopAntiDrop ? 'ON' : 'OFF'}
-                                        </button>
-                                        <button onClick={() => setMixxPopFoley(!mixxPopFoley)} className={`px-2.5 py-1.5 rounded md:text-xs text-[10px] font-bold transition-all border ${mixxPopFoley ? 'bg-emerald-900/50 border-emerald-500 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-slate-800/50 border-slate-700 text-slate-500 hover:text-slate-300'}`} title="在段落切换处，使用玻璃碎裂、枪械上膛、系统故障等极其强烈的非乐器环境音效强行打断">
-                                            🎬 采样切刀 {mixxPopFoley ? 'ON' : 'OFF'}
-                                        </button>
-                                        <button onClick={() => setMixxPopPersona(!mixxPopPersona)} className={`px-2.5 py-1.5 rounded md:text-xs text-[10px] font-bold transition-all border ${mixxPopPersona ? 'bg-purple-900/50 border-purple-500 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.3)]' : 'bg-slate-800/50 border-slate-700 text-slate-500 hover:text-slate-300'}`} title="强制分配人声轨道，例如主歌女声低语，副歌男声暴躁说唱+大合唱，营造多角色幻觉">
-                                            🎭 人格分裂 {mixxPopPersona ? 'ON' : 'OFF'}
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {showBlueprintArea && (
-                                    <div className="relative animate-in fade-in slide-in-from-top-2 duration-300">
-                                        <label className="text-[10px] font-bold text-indigo-400 uppercase mb-2 flex justify-between items-center">
-                                            <span>📝 AI 企划案 / 编排大纲 (可手动修改确认)</span>
-                                            <button onClick={() => setShowBlueprintArea(false)} className="text-slate-500 hover:text-slate-300 p-1 bg-black/20 rounded"><X size={12}/></button>
-                                        </label>
-                                        <textarea
-                                            value={aiBlueprint}
-                                            onChange={(e) => setAiBlueprint(e.target.value)}
-                                            placeholder="这里将显示 AI 的编排构思，您也可以直接在这里写下详细的大纲..."
-                                            className="w-full h-24 bg-indigo-950/20 border border-indigo-500/30 rounded-xl p-3 text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none text-xs md:text-sm transition-all leading-relaxed font-sans"
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                    
-                    <div className="flex justify-between items-center mt-2">
-                        {aiError ? <span className="text-red-400 text-xs flex items-center gap-1"><span className="w-1.5 h-1.5 bg-red-500 rounded-full"></span>{String(aiError)}</span> : <span></span>}
-                        <button onClick={generateAiRecipe} disabled={isAiGenerating} className={`px-6 py-2 rounded-lg text-xs md:text-sm font-bold text-white shadow-lg disabled:opacity-50 flex items-center gap-2 ${aiMode === 'inspiration' ? 'bg-blue-600 hover:bg-blue-500' : aiMode === 'lyrics' ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-amber-600 hover:bg-amber-500'}`}>{isAiGenerating ? <><Loader2 size={14} className="animate-spin" /> 思考中...</> : <><Wand2 size={14} /> {aiMode === 'inspiration' ? '生成配方' : aiMode === 'lyrics' ? '最终确认并生成 (Generate)' : '智能扩写'}</>}</button>
-                    </div>
-                </div>
-                {aiRecipes && (
-                    <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4 animate-in fade-in slide-in-from-bottom-4 duration-500 border-t border-slate-800 pt-6">
-                    {aiRecipes.map((recipe, index) => (
-                        <div key={index} className="bg-slate-950 border border-slate-800 rounded-xl p-4 hover:border-blue-500/50 transition-all flex flex-col group cursor-pointer" 
-                            onClick={() => {
-                                if (aiMode === 'enhancer') {
-                                    const fullText = formatEnhancerPrompt(recipe, aiPrompt);
-                                    copyToClipboard(fullText);
-                                } else {
-                                    applyAutoMix(recipe.styles, recipe.instruments, recipe.vocals || [], recipe.production, recipe.vibes, isBaseLocked, index >= 3);
-                                }
-                            }}>
-                            <div className="mb-3">
-                                    <div className="flex justify-between items-center">
-                                      <h4 className="font-bold text-blue-400 text-sm md:text-base group-hover:text-blue-300 flex items-center gap-2"><span className="w-5 h-5 rounded-full bg-blue-900/50 flex items-center justify-center text-[10px] text-blue-400">{index + 1}</span>{typeof recipe.title === 'string' ? recipe.title : JSON.stringify(recipe.title)}</h4>
-                                      {index >= 3 && aiMode !== 'enhancer' && <span className="text-[9px] bg-amber-900/50 text-amber-200 px-1.5 py-0.5 rounded border border-amber-700/50 flex items-center gap-1"><Flame size={10}/> 自由模式</span>}
-                                    </div>
-                                    <p className="text-[10px] md:text-xs text-slate-500 mt-1 line-clamp-2">{typeof recipe.reason === 'string' ? recipe.reason : JSON.stringify(recipe.reason)}</p>
-                                </div>
-                                <div className="space-y-1.5 flex-grow">
-                                <div className="flex flex-wrap gap-1">
-                                    {(index >= 3 || aiMode === 'enhancer' ? recipe.styles : validateTags(recipe.styles, data.styles)).slice(0, 2).map(t => <span key={typeof t === 'string' ? t : JSON.stringify(t)} className="text-[9px] md:text-[10px] lg:text-xs bg-slate-900 text-slate-400 px-1.5 py-0.5 rounded border border-slate-800">{typeof t === 'string' ? t : JSON.stringify(t)}</span>)}
-                                </div>
-                                <div className="flex flex-wrap gap-1">
-                                     {(index >= 3 || aiMode === 'enhancer' ? recipe.instruments : validateTags(recipe.instruments, data.instruments)).slice(0, 2).map(t => <span key={typeof t === 'string' ? t : JSON.stringify(t)} className="text-[9px] md:text-[10px] lg:text-xs bg-slate-900 text-slate-400 px-1.5 py-0.5 rounded border border-slate-800">{typeof t === 'string' ? t : JSON.stringify(t)}</span>)}
-                                     {(recipe.vocals ? (index >= 3 || aiMode === 'enhancer' ? recipe.vocals : validateTags(recipe.vocals, data.vocals)).slice(0, 2) : []).map(t => <span key={typeof t === 'string' ? t : JSON.stringify(t)} className="text-[9px] md:text-[10px] lg:text-xs bg-slate-900 text-slate-400 px-1.5 py-0.5 rounded border border-slate-800">{typeof t === 'string' ? t : JSON.stringify(t)}</span>)}
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2 mt-3">
-                                   <div className={`w-full py-1.5 rounded group-hover:text-white text-[10px] md:text-xs font-bold transition-colors flex items-center justify-center gap-1 ${aiMode === 'enhancer' ? 'bg-amber-900/50 text-amber-300 group-hover:bg-amber-600' : 'bg-slate-800 text-slate-400 group-hover:bg-blue-600'}`}>
-                                      {aiMode === 'enhancer' ? <><Copy size={10} /> 📋 复制最终成品 (Copy Result)</> : <><ArrowRight size={10} /> 应用</>}
-                                   </div>
-                                   {aiMode === 'lyrics' && (
-                                     <button 
-                                        onClick={(e) => generateFullLyrics(e, recipe, index)}
-                                        disabled={isGeneratingLyricsIndex === index}
-                                        className={`py-1.5 px-3 rounded text-[10px] md:text-xs font-bold transition-colors flex items-center justify-center gap-1 border whitespace-nowrap min-w-[100px] ${recipe.enhanced_lyrics ? 'bg-indigo-900/50 hover:bg-indigo-600 text-indigo-300 hover:text-white border-indigo-500/30' : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-600'}`}
-                                        title={recipe.enhanced_lyrics ? "查看已编排的完整歌词" : "算力全开，专注深度编排全曲歌词"}
-                                     >
-                                        {isGeneratingLyricsIndex === index ? (
-                                            <><Loader2 size={12} className="animate-spin" /> 编排中...</>
-                                        ) : recipe.enhanced_lyrics ? (
-                                            <><ScrollText size={12} /> 查看歌词</>
-                                        ) : (
-                                            <><PenLine size={12} /> 深度编排全曲</>
-                                        )}
-                                     </button>
-                                   )}
-                                </div>
-                            </div>
+             <div className="flex-1 overflow-hidden relative flex items-center h-full ml-[34px]">
+               {alerts.length === 0 ? (
+                  <div className="text-[10px] text-gray-600 font-mono px-3 flex items-center gap-1.5 animate-pulse">
+                    <Activity className="w-3 h-3 opacity-50"/> {isSentinelRunning ? '潜行侦测异动中...' : '哨兵休眠'}
+                  </div>
+               ) : (
+                  <div className="flex w-max animate-ticker hover:[animation-play-state:paused] items-center">
+                    {[...Array(12)].map((_, i) => (
+                      <div key={i} className="flex shrink-0 items-center h-full min-w-[300px] md:min-w-[400px] pr-12 md:pr-24">
+                        {alerts.map((alert, idx) => (
+                          <div key={`${alert.id}-${i}-${idx}`} onClick={() => addCoinToRoster(alert.symbol)} className={`flex items-center gap-1.5 px-3 h-full border-r border-gray-800/30 last:border-0 cursor-pointer transition-all group ${alert.type === 'long' ? 'hover:bg-cyan-900/20' : 'hover:bg-red-900/20'}`}>
+                            <span className={`text-[9px] px-1 py-0.5 rounded flex items-center ${alert.type === 'long' ? 'text-cyan-400 bg-cyan-900/30' : 'text-red-400 bg-red-900/30'}`}>
+                               {alert.type === 'long' ? '💎' : '🚨'}
+                            </span>
+                            <span className={`text-[11px] font-black ${alert.type === 'long' ? 'text-gray-200 group-hover:text-cyan-300' : 'text-gray-200 group-hover:text-red-300'}`}>{alert.symbol.replace(/USDT|HL:/g,'')}</span>
+                            <span className={`text-[10px] font-bold ${alert.score >= 75 ? 'text-cyan-400' : 'text-indigo-400'}`}>{alert.score}</span>
+                          </div>
                         ))}
-                    </div>
-                )}
+                        {/* 优雅的循环节点分隔符 */}
+                        <div className="ml-6 md:ml-12 flex items-center gap-1 opacity-40">
+                           <div className="w-1 h-1 rounded-full bg-gray-500"></div>
+                           <div className="w-1.5 h-1.5 rounded-full bg-gray-400"></div>
+                           <div className="w-1 h-1 rounded-full bg-gray-500"></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+               )}
+             </div>
+             <div className="absolute right-0 z-10 w-8 h-full bg-gradient-to-l from-gray-900/90 to-transparent pointer-events-none"></div>
+          </div>
+
+          {/* 右侧：紧凑型控制区 */}
+          <div className="flex items-center justify-between lg:justify-end gap-2 shrink-0">
+            <div className="flex items-center gap-1.5">
+              <button onClick={toggleSentinel} className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] md:text-xs font-bold border transition-all ${isSentinelRunning ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50 shadow-[0_0_10px_rgba(234,179,8,0.2)]' : 'bg-gray-900 text-gray-500 border-gray-800 hover:text-gray-300'}`}>
+                <BellRing className={`w-3 h-3 ${isSentinelRunning ? 'animate-pulse' : ''}`} />
+                <span>哨兵 {isSentinelRunning ? 'ON' : 'OFF'}</span>
+              </button>
+              <button onClick={() => setIsLiveMode(!isLiveMode)} className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] md:text-xs font-bold border transition-all ${isLiveMode ? 'bg-green-500/20 text-green-400 border-green-500/50 shadow-[0_0_10px_rgba(34,197,94,0.2)]' : 'bg-gray-900 text-gray-500 border-gray-800 hover:text-gray-300'}`}>
+                {isLiveMode ? <Radio className="w-3 h-3 animate-pulse" /> : <Radar className="w-3 h-3" />}
+                <span>LIVE</span>
+              </button>
             </div>
+            <div className="flex items-center gap-0.5 bg-gray-900 p-0.5 rounded-lg border border-gray-800">
+              {['1h', '4h', '1d'].map(t => (
+                <button key={t} onClick={() => setKlineInterval(t)} className={`px-2 md:px-3 py-1 rounded-md text-[10px] md:text-xs font-medium transition-colors border ${klineInterval === t ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/50' : 'border-transparent text-gray-400 hover:bg-gray-800'}`}>{t}</button>
+              ))}
+            </div>
+          </div>
+        </header>
+
+        <div className="flex flex-col md:flex-row gap-3 md:gap-4 justify-between items-start md:items-center" ref={searchContainerRef}>
+          <div className="hidden md:flex w-full md:w-auto relative">
+            <form onSubmit={handleAddCoin} className="flex w-full relative z-20">
+              <input type="text" placeholder="输入代币检索全网超级索引" value={newCoin} onChange={handleSearchChange} onFocus={() => newCoin.trim() && setShowDropdown(true)} className="bg-gray-900 border border-gray-700 text-gray-100 px-4 py-2 rounded-l-lg focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 w-48 transition-all focus:w-64" />
+              <button type="submit" className="bg-gray-800 hover:bg-gray-700 border border-l-0 border-gray-700 px-4 py-2 rounded-r-lg transition-colors flex items-center gap-2"><Search className="w-4 h-4 text-gray-400" /></button>
+            </form>
+            
+            {showDropdown && searchResults.length > 0 && (
+               <div className="absolute top-full mt-2 w-full bg-gray-950/95 backdrop-blur-xl border border-gray-700 rounded-xl shadow-2xl z-[200] overflow-hidden max-h-[300px] overflow-y-auto custom-scrollbar animate-in slide-in-from-top-2 fade-in duration-200">
+                  {searchResults.map(res => (
+                     <div key={res.id} onClick={() => handleSelectAsset(res)} className="px-4 py-3 hover:bg-gray-800 cursor-pointer flex justify-between items-center border-b border-gray-800/50 last:border-0 transition-colors group">
+                        <span className="font-bold text-gray-200 group-hover:text-cyan-400 transition-colors">
+                          {res.zhName ? <span className="text-white mr-1">{res.zhName} <span className="text-gray-500 text-xs ml-1">({res.name})</span></span> : res.name}
+                        </span>
+                        <span className="text-[10px] px-2 py-0.5 rounded border border-gray-700 text-gray-400 bg-gray-900 shrink-0">{res.badge}</span>
+                     </div>
+                  ))}
+               </div>
+            )}
+          </div>
+
+          <div className="flex w-full md:w-auto gap-2 sm:gap-3 relative">
+            {isMobileSearchOpen ? (
+              <div className="flex w-full md:hidden relative animate-in slide-in-from-right-4 fade-in duration-200">
+                <form onSubmit={handleAddCoin} className="flex w-full relative z-20">
+                  <input type="text" placeholder="键入任意资产嗅探" value={newCoin} onChange={handleSearchChange} onFocus={() => newCoin.trim() && setShowDropdown(true)} autoFocus className="w-full bg-gray-900 border border-gray-700 text-gray-100 px-4 py-2 rounded-l-lg focus:outline-none focus:border-cyan-500" />
+                  <button type="submit" className="bg-cyan-600/20 hover:bg-cyan-600/40 border-y border-gray-700 text-cyan-400 px-4 transition-colors"><Search className="w-4 h-4" /></button>
+                  <button type="button" onClick={() => { setIsMobileSearchOpen(false); setShowDropdown(false); }} className="bg-gray-800 hover:bg-gray-700 border border-gray-700 px-3 rounded-r-lg text-gray-400 transition-colors"><X className="w-4 h-4" /></button>
+                </form>
+                {showDropdown && searchResults.length > 0 && (
+                   <div className="absolute top-full left-0 mt-2 w-full bg-gray-950/95 backdrop-blur-xl border border-gray-700 rounded-xl shadow-2xl z-[200] overflow-hidden max-h-[250px] overflow-y-auto custom-scrollbar">
+                      {searchResults.map(res => (
+                         <div key={res.id} onClick={() => handleSelectAsset(res)} className="px-4 py-3 hover:bg-gray-800 cursor-pointer flex justify-between items-center border-b border-gray-800/50 last:border-0 transition-colors">
+                            <span className="font-bold text-gray-200">
+                              {res.zhName ? <span className="text-white mr-1">{res.zhName} <span className="text-gray-500 text-xs ml-1">({res.name})</span></span> : res.name}
+                            </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded border border-gray-700 text-gray-400 bg-gray-900 shrink-0">{res.badge}</span>
+                         </div>
+                      ))}
+                   </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <button onClick={() => setIsMobileSearchOpen(true)} className="md:hidden flex-none flex items-center justify-center px-3.5 rounded-lg border border-gray-700 bg-gray-900 text-cyan-400 hover:bg-gray-800 transition-colors"><Search className="w-4 h-4" /></button>
+                <button onClick={runRadarScan} disabled={isRadarScanning} className={`flex-1 md:flex-none flex items-center justify-center gap-1.5 md:gap-2 px-2 md:px-6 py-2 md:py-2.5 rounded-lg text-xs md:text-sm font-semibold transition-all ${isRadarScanning ? 'bg-indigo-900/50 text-indigo-400 cursor-not-allowed border border-indigo-500/30' : 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/50 hover:bg-indigo-600/40 shadow-[0_0_15px_rgba(99,102,241,0.2)]'}`}>
+                  <Rocket className={`w-4 h-4 md:w-5 md:h-5 shrink-0 ${isRadarScanning ? 'animate-bounce' : ''}`} />
+                  <span className="hidden sm:inline">星际雷达 (Top 200)</span><span className="sm:hidden truncate">星际雷达</span>
+                </button>
+                <button onClick={scanMarket} disabled={isScanning} className={`flex-1 md:flex-none flex items-center justify-center gap-1.5 md:gap-2 px-2 md:px-6 py-2 md:py-2.5 rounded-lg text-xs md:text-sm font-semibold transition-all ${isScanning ? 'bg-cyan-900 text-cyan-400 cursor-not-allowed' : 'bg-gradient-to-r from-gray-800 to-gray-900 border border-gray-700 hover:border-cyan-500/50 text-gray-300 hover:text-cyan-400'}`}>
+                  <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 shrink-0 ${isScanning ? 'animate-spin text-cyan-400' : ''}`} />
+                  <span className="hidden sm:inline">{isScanning ? `推演中 ${Math.round(progress)}%` : '强制扫描监控阵列'}</span><span className="sm:hidden truncate">{isScanning ? `${Math.round(progress)}%` : '扫描阵列'}</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {coins.map(c => (
+            <span key={c} className={`group flex items-center gap-1 border px-3 py-1 rounded-full text-xs font-medium transition-colors ${c === 'BTCUSDT' ? 'bg-orange-500/10 border-orange-500/50 text-orange-400 shadow-[0_0_10px_rgba(249,115,22,0.1)]' : 'bg-gray-900 border-gray-800 text-gray-300 hover:border-gray-600'}`}>
+              {c === 'BTCUSDT' && <Bitcoin className="w-3.5 h-3.5" />}
+              {c.replace('HL:', '').replace(/\/USDC|USDT|USDC/gi, '')}
+              {c !== 'BTCUSDT' && coinRanks[c] > 100 && <span className="text-[9px] bg-red-900/50 text-red-400 px-1 rounded-sm border border-red-500/30">#{coinRanks[c]}</span>}
+              {c !== 'BTCUSDT' && coinRanks[c] > 50 && coinRanks[c] <= 100 && <span className="text-[9px] bg-amber-900/50 text-amber-400 px-1 rounded-sm border border-amber-500/30">#{coinRanks[c]}</span>}
+              {c !== 'BTCUSDT' && <button onClick={() => removeCoin(c)} className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-opacity ml-1">×</button>}
+            </span>
+          ))}
+        </div>
+
+        {/* --- 主力战报阵列区 --- */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
+          {tradeDirection === 'neutral' && results.filter(r => r.symbol !== 'CCI').length === 0 ? (
+            <div className="col-span-full py-24 text-center border border-indigo-500/30 rounded-2xl bg-indigo-950/10 shadow-[0_0_50px_rgba(79,70,229,0.1)] relative overflow-hidden">
+               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/20 blur-[100px] rounded-full"></div>
+               <ShieldAlert className="w-16 h-16 text-indigo-400 mx-auto mb-6 relative z-10 animate-pulse" />
+               <h3 className="text-2xl font-black text-white mb-2 relative z-10">空仓保护机制已激活</h3>
+               <p className="text-indigo-300 text-sm max-w-lg mx-auto relative z-10 leading-relaxed">
+                  当前大盘环境混沌，系统已自动熔断常规趋势扫描。<br/>
+                  <span className="text-gray-400 mt-2 block">V12 引擎正在暗中为您寻觅 <strong>Beta &lt; 0.4 且得分 &ge; 75</strong> 的极度稀缺事件驱动型 Alpha...<br/>如果雷达毫无反应，说明<strong>最好的交易就是不交易。</strong></span>
+               </p>
+            </div>
+          ) : results.length > 0 ? results.map((res, idx) => {
+            const displayPrice = (isLiveMode && livePrices[res.symbol]) ? livePrices[res.symbol] : res.currentPrice;
+            const liveRiskDistance = (((displayPrice - res.plan.entryPoint) / res.plan.entryPoint) * 100).toFixed(1);
+            const isBTC = res.symbol === 'BTCUSDT';
+            const isCCI = res.symbol === 'CCI';
+            const isKillZone = Math.abs(liveRiskDistance) <= 1.5 && parseFloat(res.plan.rrr) >= 2.0 && res.score >= 60 && !res.rrrDetails.isFOMO;
+
+            return (
+            <div 
+              key={res.symbol} 
+              onClick={() => setSelectedCoin(res)}
+              className={`relative bg-gray-900 rounded-xl border p-4 sm:p-5 transition-all hover:-translate-y-1 hover:shadow-xl cursor-pointer group ${
+                isCCI ? 'border-amber-500/60 shadow-[0_0_30px_rgba(245,158,11,0.2)] ring-1 ring-amber-500/30' :
+                isKillZone ? 'border-cyan-400 shadow-[0_0_30px_rgba(34,211,238,0.4)] animate-pulse ring-1 ring-cyan-400/50' :
+                isBTC ? 'border-orange-500/50 shadow-[0_0_20px_rgba(249,115,22,0.15)] ring-1 ring-orange-500/20' :
+                res.score >= 75 ? 'border-cyan-500/60 shadow-cyan-900/30' : 
+                res.score >= 55 ? 'border-indigo-500/30' : 
+                res.score >= 35 ? 'border-gray-800 opacity-80 hover:opacity-100' : 
+                'border-red-900/50 opacity-80 hover:opacity-100 shadow-red-900/10'
+              }`}
+            >
+              <div className="absolute inset-0 overflow-hidden rounded-xl pointer-events-none z-0">
+                <div className="absolute -top-10 -right-10 w-32 h-32 blur-3xl rounded-full opacity-20" style={{ backgroundColor: isCCI ? '#f59e0b' : isKillZone ? '#22d3ee' : isBTC ? '#f97316' : res.score >= 75 ? '#06b6d4' : res.score >= 55 ? '#6366f1' : res.score >= 35 ? '#9ca3af' : '#ef4444' }} />
+              </div>
+
+              <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center gap-1.5">
+                <button onClick={(e) => { e.stopPropagation(); if (!isGeneratingMicro) generateMicroPoster(res); }} className="p-1.5 bg-gray-950/80 hover:bg-cyan-900/50 text-gray-400 hover:text-cyan-400 rounded-lg border border-transparent hover:border-cyan-500/50 transition-all group/btn relative">
+                  {isGeneratingMicro && microPosterData?.symbol === res.symbol ? <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" /> : <Camera className="w-4 h-4" />}
+                  <div className="absolute bottom-full right-0 mb-2 w-max px-2 py-1 bg-gray-900 text-[10px] text-gray-300 rounded border border-gray-700 opacity-0 group-hover/btn:opacity-100 pointer-events-none transition-opacity">分享雷达快照</div>
+                </button>
+                <div className="p-1.5 bg-gray-950/80 text-gray-500 rounded-lg hidden sm:block"><Maximize2 className="w-4 h-4" /></div>
+              </div>
+
+              <div className="flex justify-between items-start mb-3 sm:mb-4 relative z-10">
+                <div>
+                  <h3 className={`text-lg sm:text-xl font-bold flex items-center flex-wrap gap-1.5 sm:gap-2 ${isBTC ? 'text-orange-400' : isCCI ? 'text-amber-400' : ''}`}>
+                    {isBTC && <Bitcoin className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />}
+                    {isCCI && <Globe className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />}
+                    {getZhName(res.actualSymbol) && <span className="text-white shrink-0">{getZhName(res.actualSymbol)}</span>}
+                    <span className={`shrink-0 ${getZhName(res.actualSymbol) ? 'text-gray-400 text-sm sm:text-base' : ''}`}>{res.actualSymbol.replace(/\/USDC|USDT|USDC/gi, '')}</span>
+                    {!isCCI && <span className="text-[10px] sm:text-xs text-gray-500 font-normal shrink-0">/{res.isHL ? 'USDC' : 'USDT'}</span>}
+                    
+                    {res.isHL && <span className="bg-purple-900/50 text-purple-400 border border-purple-500/50 px-1.5 py-0.5 rounded text-[10px] shrink-0 ml-1 shadow-[0_0_10px_rgba(168,85,247,0.3)]">Hyperliquid 节点</span>}
+                    {isKillZone && <span className="bg-cyan-500/20 text-cyan-400 border border-cyan-400 px-1.5 py-0.5 rounded text-[10px] shrink-0 animate-bounce shadow-[0_0_10px_rgba(34,211,238,0.5)]">🎯 临界共振</span>}
+                    {isBTC && <span className="bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] shrink-0 ml-1">大盘中枢</span>}
+                    {isCCI && <span className="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] shrink-0 ml-1 animate-pulse">全息合成指数</span>}
+                    {res.crossZScore > 1.2 && !isCCI && <span className="bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/50 px-1.5 py-0.5 rounded text-[10px] shrink-0 ml-1 shadow-[0_0_10px_rgba(217,70,239,0.4)] animate-pulse">🔥 极度稀缺 Alpha (Z&gt;1.2)</span>}
+                  </h3>
+                  <p className={`font-mono text-base sm:text-lg mt-1 flex items-center gap-2 ${isLiveMode && !isCCI ? 'text-green-400' : 'text-gray-300'}`}>
+                    ${displayPrice.toPrecision(5)}
+                    {isLiveMode && !isCCI && <span className="flex h-1.5 w-1.5 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-green-500"></span></span>}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <div className="text-3xl sm:text-4xl font-black" style={{ color: res.score >= 75 ? '#22d3ee' : res.score >= 55 ? '#818cf8' : res.score >= 35 ? '#9ca3af' : '#f87171' }}>{res.score}</div>
+                  <div className="text-[9px] sm:text-[10px] text-gray-500 uppercase font-bold tracking-wider mt-1 cursor-help inline-block border-b border-dashed border-gray-600 hover:text-gray-300 transition-colors"
+                    onMouseEnter={(e) => handleMouseEnterTooltip('score', res, e)}
+                    onMouseLeave={handleMouseLeaveTooltip}>V12 指数平滑分</div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3 sm:mb-4 relative z-10">
+                {!isCCI && (
+                  <span className={`px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs rounded-md font-medium tracking-wide border shadow-sm ${res.metrics.profileShape === 'P型' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30 shadow-[0_0_8px_rgba(244,63,94,0.2)]' : res.metrics.profileShape === 'b型' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.2)]' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30 shadow-[0_0_8px_rgba(99,102,241,0.2)]'}`}>
+                    {res.metrics.profileShape === 'P型' ? '🧱 P型压顶' : res.metrics.profileShape === 'b型' ? '🛡️ b型兜底' : '⚖️ D型平衡'}
+                  </span>
+                )}
+                {res.signals.length > 0 ? res.signals.map((sig, i) => (
+                  <span key={i} className={`px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs rounded-md font-medium tracking-wide ${sig.color}`}>{sig.text}</span>
+                )) : <span className="px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs rounded-md bg-gray-800 text-gray-500">{res.score >= 35 ? "中性震荡中" : "弱势走势"}</span>}
+              </div>
+
+              <div className="flex items-center justify-between bg-gray-950/80 rounded border border-gray-800 p-2 mb-3 sm:mb-4 relative z-10">
+                <span className="text-[9px] sm:text-[10px] text-gray-500 flex items-center gap-1 cursor-help border-b border-dashed border-gray-600 hover:text-gray-300 transition-colors"
+                  onMouseEnter={(e) => handleMouseEnterTooltip('mc', res, e)}
+                  onMouseLeave={handleMouseLeaveTooltip}>
+                  <Layers className="w-2.5 h-2.5 sm:w-3 sm:h-3"/> 蒙特卡洛 2000x 推演
+                </span>
+                <div className="flex items-center gap-2 sm:gap-3">
+                   <span className="text-[9px] sm:text-[10px] text-gray-400">止盈: <span className="text-green-400 font-mono font-bold">{res.mcResults.targetProb}%</span></span>
+                   <span className="text-[9px] sm:text-[10px] text-gray-400">止损: <span className="text-red-400 font-mono font-bold">{res.mcResults.stopProb}%</span></span>
+                </div>
+              </div>
+
+              <div className="bg-gray-950/80 rounded-lg p-2 sm:p-3 border border-gray-800 mb-3 sm:mb-4 relative z-10">
+                <div className="flex justify-between items-center mb-2 sm:mb-3 border-b border-gray-800/50 pb-1.5 sm:pb-2">
+                  <h4 className="text-[10px] sm:text-xs text-gray-400 flex items-center gap-1 uppercase font-semibold tracking-wider"><Target className="w-3 h-3 sm:w-3.5 sm:h-3.5" /> 纯正 SMC 狙击阵列</h4>
+                  {renderRRRWithTooltip(res)}
+                </div>
+                
+                {(() => {
+                    const distATR = Math.abs(displayPrice - res.plan.entryPoint) / (res.metrics.rawAtr || 1);
+                    
+                    let sniperStatus = '';
+                    let sniperColor = '';
+                    let sniperBg = '';
+                    let icon = '';
+
+                    if (distATR > 1.5) {
+                        sniperStatus = '未到伏击区 (绝对死等)';
+                        sniperColor = 'text-gray-500';
+                        sniperBg = 'bg-gray-900 border border-gray-800';
+                        icon = '🔭';
+                    } else if (distATR > 0.5 && distATR <= 1.5) {
+                        sniperStatus = '逼近火力线 (正在测试)';
+                        sniperColor = 'text-yellow-400';
+                        sniperBg = 'bg-yellow-500/10 border border-yellow-500/30';
+                        icon = '👀';
+                    } else {
+                        sniperStatus = '进入狙击区 (雷达激活)';
+                        sniperColor = 'text-cyan-400 font-bold';
+                        sniperBg = 'bg-cyan-500/20 border border-cyan-500/50 shadow-[0_0_15px_rgba(6,182,212,0.3)] animate-pulse';
+                        icon = '🎯';
+                    }
+
+                    return (
+                        <>
+                          <div className={`mb-3 rounded p-2 flex items-center justify-center gap-2 ${sniperBg}`}>
+                             <span className="text-sm">{icon}</span>
+                             <span className={`text-[11px] sm:text-xs tracking-wide ${sniperColor}`}>{sniperStatus}</span>
+                          </div>
+                          <div className="mb-3 bg-black/40 rounded p-3 border border-indigo-500/30 flex flex-col items-center justify-center text-center relative overflow-hidden group/target">
+                            <div className="absolute inset-0 bg-indigo-500/10 opacity-50 group-hover/target:opacity-100 transition-opacity"></div>
+                            <span className="text-[9px] sm:text-[10px] text-indigo-300 font-bold uppercase tracking-widest relative z-10 mb-0.5">🎯 战术优先狙击点</span>
+                            <span className="text-[10px] sm:text-xs text-gray-300 mb-1 relative z-10 font-bold">{res.plan.entryType}</span>
+                            <span className="font-mono text-lg sm:text-xl text-cyan-400 font-black relative z-10 shadow-cyan-500/50 drop-shadow-md">${res.plan.entryPoint.toPrecision(5)}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-1 sm:gap-2">
+                            <div className="bg-gray-900 rounded p-1.5 border border-gray-800/50">
+                              <div className="text-[9px] sm:text-[10px] text-gray-500 mb-0.5 sm:mb-1">距狙击位距 (Live)</div>
+                              <div className={`font-mono text-xs sm:text-sm ${Math.abs(liveRiskDistance) < 2 ? 'text-yellow-400 font-bold animate-pulse' : Math.abs(liveRiskDistance) > 5 ? 'text-red-400' : 'text-gray-400'}`}>{liveRiskDistance > 0 ? '+' : ''}{liveRiskDistance}%</div>
+                            </div>
+                            <div className="bg-gray-900 rounded p-1.5 border border-gray-800/50">
+                              <div className="text-[9px] sm:text-[10px] text-gray-500 mb-0.5 sm:mb-1">边界防守位 (Stop)</div>
+                              <div className="font-mono text-xs sm:text-sm text-red-400">${res.plan.stopLoss.toPrecision(5)}</div>
+                            </div>
+                          </div>
+                        </>
+                    );
+                })()}
+              </div>
+
+              <div className="flex flex-col gap-1.5 sm:gap-2 relative z-10">
+                <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
+                  <div className="bg-gray-900 rounded p-1.5 sm:p-2 text-center border border-gray-800/50 flex justify-between items-center px-2 sm:px-3 relative overflow-hidden">
+                    {res.lastTd && parseFloat(res.lastTd.aiScore) > 0 && (
+                       <div className="absolute left-0 top-0 bottom-0 w-1 bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.8)]"></div>
+                    )}
+                    <div className="text-[9px] sm:text-[10px] text-gray-500 cursor-help border-b border-dashed border-gray-600 hover:text-gray-300 transition-colors"
+                      onMouseEnter={(e) => handleMouseEnterTooltip('ai', res, e)}
+                      onMouseLeave={handleMouseLeaveTooltip}>TD-AI 胜率</div>
+                    <div className={`font-mono text-[10px] sm:text-xs ${res.lastTd && parseFloat(res.lastTd.aiScore) >= 80 ? 'text-cyan-400 font-bold' : res.lastTd && parseFloat(res.lastTd.aiScore) >= 50 ? 'text-amber-400' : 'text-gray-500'}`}>
+                       {res.lastTd && parseFloat(res.lastTd.aiScore) > 0 ? `${res.lastTd.aiScore}%` : '--'}
+                    </div>
+                  </div>
+                  <div className="bg-gray-900 rounded p-1.5 sm:p-2 text-center border border-gray-800/50 flex justify-between items-center px-2 sm:px-3">
+                    <div className="text-[9px] sm:text-[10px] text-gray-500 cursor-help border-b border-dashed border-gray-600 hover:text-gray-300 transition-colors"
+                      onMouseEnter={(e) => handleMouseEnterTooltip('beta', res, e)}
+                      onMouseLeave={handleMouseLeaveTooltip}>走势关联(Beta)</div>
+                    <div className={`font-mono text-[10px] sm:text-xs ${parseFloat(res.metrics.beta) < 0.3 ? 'text-indigo-400 font-bold' : 'text-gray-400'}`}>{res.metrics.beta}</div>
+                  </div>
+                </div>
+
+                {/* V21.0 订单流显微雷达组件 */}
+                <div className="bg-gray-900 rounded p-2 sm:p-3 border border-gray-800/50 relative overflow-hidden">
+                  <div className="text-[9px] sm:text-[10px] text-gray-400 mb-2.5 cursor-help flex justify-between items-center"
+                    onMouseEnter={(e) => handleMouseEnterTooltip('taker', res, e)}
+                    onMouseLeave={handleMouseLeaveTooltip}>
+                    <span className="flex items-center gap-1.5"><Zap className="w-3 h-3 text-purple-400" /> V21 狙击手火控雷达 (3m)</span>
+                    <span className="text-[8px] text-gray-500 bg-black/50 px-1.5 py-0.5 rounded border border-gray-700/50">{res.isHL ? 'Hyperliquid' : 'Binance'}</span>
+                  </div>
+                  {(() => {
+                     // 脉冲起搏器强制探查：打破旧版的停搏锁
+                     const currentPulse = radarPulse; 
+                     const flow = tickBufferRef.current[res.symbol];
+                     
+                     // 解除 HL 和网络降级下的无脑阻断
+                     if (!flow || res.actualSymbol === 'CCI') return <div className="text-xs text-gray-600 font-mono text-center py-2 flex items-center justify-center gap-2"><RefreshCw className="w-3 h-3 animate-spin"/> 数据连线中...</div>;
+
+                     const distToEntry = Math.abs(displayPrice - res.plan.entryPoint) / res.plan.entryPoint * 100;
+                     const inKillZone = distToEntry <= 1.0; // 进入 1% 伏击圈才激活微观雷达
+
+                     if (!inKillZone) {
+                         return (
+                             <div className="flex flex-col items-center justify-center py-3 bg-gray-950/50 rounded border border-dashed border-gray-800/80">
+                                 <Radar className="w-4 h-4 text-gray-700 mb-1" />
+                                 <span className="text-[9px] text-gray-600">距伏击点 &gt; 1%，微观雷达静默休眠</span>
+                             </div>
+                         );
+                     }
+
+                     const wCVD = flow.whaleCVD;
+                     const rCVD = flow.retailCVD;
+                     const hist = flow.history || [];
+                     const histLen = hist.length;
+                     // 获取过去3分钟的快照作为基准，若不足则用最新值
+                     const compareIdx = Math.max(0, histLen - 3);
+                     const baseW = histLen > 0 ? hist[compareIdx].w : wCVD;
+                     const baseR = histLen > 0 ? hist[compareIdx].r : rCVD;
+
+                     const wDelta = wCVD - baseW;
+                     const rDelta = rCVD - baseR;
+                     
+                     // 应用动态归一化阈值
+                     const threshold = res.metrics.cvdThreshold;
+
+                     let triggerStatus = '伏击区火力侦察中...';
+                     let triggerColor = 'text-yellow-500';
+                     let triggerBg = 'bg-yellow-500/10 border-yellow-500/30';
+                     let isFire = false;
+
+                     if (res.direction === 'long') {
+                         if (wDelta > threshold) { 
+                             triggerStatus = '🚨 巨鲸点火 (开单!)'; triggerColor = 'text-green-400 font-black'; triggerBg = 'bg-green-500/20 border-green-500/50 shadow-[0_0_15px_rgba(74,222,128,0.4)] animate-pulse'; isFire = true;
+                         } else if (wDelta < -threshold * 0.5) {
+                             triggerStatus = '⚠️ 巨鲸砸盘 (中止)'; triggerColor = 'text-red-400'; triggerBg = 'bg-red-500/10 border-red-500/30';
+                         }
+                     } else {
+                         if (wDelta < -threshold) {
+                             triggerStatus = '🚨 巨鲸狂砸 (开空!)'; triggerColor = 'text-red-400 font-black'; triggerBg = 'bg-red-500/20 border-red-500/50 shadow-[0_0_15px_rgba(244,63,94,0.4)] animate-pulse'; isFire = true;
+                         } else if (wDelta > threshold * 0.5) {
+                             triggerStatus = '⚠️ 巨鲸买入 (中止)'; triggerColor = 'text-green-400'; triggerBg = 'bg-green-500/10 border-green-500/30';
+                         }
+                     }
+
+                     return (
+                        <div className="space-y-2 mt-1">
+                           <div className={`text-center py-1.5 rounded border mb-2 flex items-center justify-center gap-1.5 ${triggerBg}`}>
+                               {isFire ? <Flame className={`w-3.5 h-3.5 ${triggerColor}`} /> : <Activity className={`w-3.5 h-3.5 ${triggerColor}`} />}
+                               <span className={`text-[10px] ${triggerColor}`}>{triggerStatus}</span>
+                           </div>
+                           <div className="flex items-center justify-between gap-2.5">
+                             <span className="text-[9px] text-purple-300 w-14 shrink-0 font-medium">3m巨鲸净量</span>
+                             <span className={`font-mono text-[10px] flex-1 text-right ${wDelta > 0 ? 'text-teal-400 font-bold' : wDelta < 0 ? 'text-rose-400 font-bold' : 'text-gray-600'}`}>
+                                {wDelta > 0 ? '+' : ''}{(wDelta/1000).toFixed(1)}k
+                             </span>
+                           </div>
+                           <div className="flex items-center justify-between gap-2.5">
+                             <span className="text-[9px] text-gray-500 w-14 shrink-0">3m散户净量</span>
+                             <span className={`font-mono text-[9px] flex-1 text-right ${rDelta > 0 ? 'text-teal-400/70' : rDelta < 0 ? 'text-rose-400/70' : 'text-gray-600'}`}>
+                                {rDelta > 0 ? '+' : ''}{(rDelta/1000).toFixed(1)}k
+                             </span>
+                           </div>
+                        </div>
+                     );
+                  })()}
+                </div>
+              </div>
+            </div>
+          )}) : (
+            <div className="col-span-full py-20 text-center border border-dashed border-gray-800 rounded-xl bg-gray-900/50">
+              <RefreshCw className="w-10 h-10 text-cyan-500/50 animate-spin mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-300">正在接入 星际多点阵列节点...</h3>
+              <p className="text-gray-500 text-sm mt-2">首次同步全网深度订单簿与高频 K 线数据</p>
+            </div>
+          )}
         </div>
       </div>
 
-      <main 
-          className="w-full max-w-[1920px] mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-8 mt-2 transition-transform origin-top"
-          style={{ zoom: zoomLevel }}
-      >
-        <div className="lg:col-span-7 space-y-6">
-          {/* Styles */}
-          <section className={`bg-slate-900/50 border rounded-xl p-4 md:p-5 relative overflow-hidden transition-all ${isBaseLocked ? 'border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.1)]' : 'border-slate-800 hover:border-slate-700'}`}>
-             <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none"><Globe2 size={80} /></div>
-             <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm md:text-base lg:text-lg font-bold text-slate-300 uppercase flex items-center gap-2"><Globe2 size={16} className="text-blue-500"/> Styles (风格)</h2>
-                <div className="flex gap-2">
-                    {isChinaLocked && <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full flex items-center gap-1"><Gem size={10} /> CN Alchemy</span>}
-                    {isBaseLocked && <span className="text-[10px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse"><Lock size={10} /> Locked</span>}
+      {/* --- 📡 银河星际雷达面板 --- */}
+      {isRadarOpen && (
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-20">
+          <div className="bg-gray-950 border border-indigo-500/30 rounded-3xl w-full max-w-6xl h-[85vh] flex flex-col shadow-2xl shadow-indigo-900/20 overflow-hidden animate-in zoom-in-95 duration-200">
+             <div className="p-6 border-b border-gray-800 flex justify-between items-center bg-gradient-to-r from-gray-900 to-indigo-950/20">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 bg-indigo-500/20 rounded-xl border border-indigo-500/30">
+                    <Rocket className={`w-8 h-8 text-indigo-400 ${isRadarScanning ? 'animate-bounce' : ''}`} />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">星际雷达 <span className="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-xs font-mono border border-indigo-500/30">Top 200 漏斗算法</span></h2>
+                    <p className="text-sm text-gray-400 mt-1">自动剔除深熊标的，全网侦测爆发前夕的高潜密码 (≥65分)</p>
+                  </div>
+                </div>
+                <button onClick={closeRadar} className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition-colors"><X/></button>
+             </div>
+
+             <div className="p-6 border-b border-gray-800 bg-[#0f1219]">
+                <div className="flex justify-between text-sm mb-3">
+                  <span className={`font-mono flex items-center gap-2 ${isRadarScanning ? 'text-indigo-400' : 'text-green-400'}`}>
+                    {isRadarScanning && <RefreshCw className="w-4 h-4 animate-spin"/>} {radarStatus}
+                  </span>
+                  <span className="font-mono text-gray-400 font-bold">{Math.round(radarProgress)}%</span>
+                </div>
+                <div className="w-full bg-gray-900 h-3 rounded-full overflow-hidden border border-gray-800">
+                   <div className="bg-gradient-to-r from-indigo-600 to-cyan-400 h-full transition-all duration-300 relative" style={{ width: `${radarProgress}%` }}>
+                     <div className="absolute top-0 right-0 w-20 h-full bg-white/30 blur-md animate-pulse"></div>
+                   </div>
                 </div>
              </div>
-             <div className="flex flex-wrap gap-2 mb-4">
-                {Object.keys(data.styles).map(region => (
-                    <button key={region} onClick={() => setActiveStyleRegion(region)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs md:text-sm xl:text-base font-bold transition-all relative ${activeStyleRegion === region ? 'bg-blue-500/10 border-blue-500/50 text-blue-400' : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-600'}`}>
-                      {region}{checkRegionHasSelection(region) && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse ml-1"></span>}
-                    </button>
-                ))}
-             </div>
-             <div className="min-h-[80px]">
-                 <CompactTagGroup items={data.styles[activeStyleRegion]} selected={selectedStyles} onToggle={(item) => toggleSelection('styles', item)} colorClass="bg-blue-600 hover:bg-blue-500" borderColor="border-blue-500/30" textColor="text-blue-200" locked={isBaseLocked} />
-             </div>
-          </section>
 
-          {/* Instruments */}
-          <section className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 md:p-5 relative overflow-hidden transition-all hover:border-slate-700">
-             <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none"><Music2 size={80} /></div>
-             <h2 className="text-sm md:text-base lg:text-lg font-bold text-slate-300 uppercase flex items-center gap-2 mb-4"><Music2 size={16} className="text-emerald-500"/> Instruments (乐器)</h2>
-             <div className="flex flex-wrap gap-2 mb-4">
-                {Object.keys(data.instruments).map(category => (
-                    <button key={category} onClick={() => setActiveInstrumentCategory(category)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs md:text-sm xl:text-base font-bold transition-all relative ${activeInstrumentCategory === category ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-600'}`}>
-                      {category.split(' ')[0].split('/')[0]} {checkInstrumentCategoryHasSelection(category) && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse ml-1"></span>}
-                    </button>
-                ))}
-             </div>
-             <div className="min-h-[80px]">
-                 <CompactTagGroup items={data.instruments[activeInstrumentCategory]} selected={selectedInstruments} onToggle={(item) => toggleSelection('instruments', item)} colorClass="bg-emerald-600 hover:bg-emerald-500" borderColor="border-emerald-500/30" textColor="text-emerald-200" />
-             </div>
-          </section>
+             <div className="flex-1 overflow-y-auto p-6 bg-black/40">
+               {radarResults.length === 0 ? (
+                 <div className="h-full flex flex-col items-center justify-center text-gray-500 space-y-6">
+                   <div className="relative">
+                     <Radar className={`w-24 h-24 ${isRadarScanning ? 'animate-spin text-indigo-500/50' : 'text-gray-800'}`} />
+                     {isRadarScanning && <div className="absolute inset-0 bg-indigo-500/20 blur-3xl rounded-full"></div>}
+                   </div>
+                   <p className="text-lg tracking-widest">{isRadarScanning ? "正在深空探测高分标的..." : "当前市场暂无符合 V8 标准的黄金标的"}</p>
+                 </div>
+               ) : (
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                   {radarResults.map(res => {
+                     const isAdded = coins.includes(res.symbol);
+                     const riskDist = (((res.currentPrice - res.plan.entryPoint) / res.plan.entryPoint) * 100).toFixed(1);
+                     const isKillZone = Math.abs(riskDist) <= 1.5 && parseFloat(res.plan.rrr) >= 2.0 && res.score >= 60 && !res.rrrDetails.isFOMO;
 
-          {/* Vocals */}
-          <section className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 md:p-5 relative overflow-hidden transition-all hover:border-slate-700">
-             <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none"><Mic2 size={80} /></div>
-             <h2 className="text-sm md:text-base lg:text-lg font-bold text-slate-300 uppercase flex items-center gap-2 mb-4"><Mic2 size={16} className="text-pink-500"/> Vocals (人声)</h2>
-             <div className="flex flex-wrap gap-2 mb-4">
-                {Object.keys(data.vocals).map(category => (
-                    <button key={category} onClick={() => setActiveVocalCategory(category)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs md:text-sm xl:text-base font-bold transition-all relative ${activeVocalCategory === category ? 'bg-pink-500/10 border-pink-500/50 text-pink-400' : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-600'}`}>
-                      {category.split(' ')[0]} {checkVocalCategoryHasSelection(category) && <span className="w-1.5 h-1.5 rounded-full bg-pink-500 animate-pulse ml-1"></span>}
-                    </button>
-                ))}
+                     return (
+                     <div key={res.symbol} className={`bg-gray-900 border rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden group transition-all ${isKillZone ? 'border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.3)] animate-pulse' : 'border-gray-800 hover:border-indigo-500/40'}`}>
+                        <div className={`absolute top-0 left-0 w-1.5 h-full ${res.score >= 80 ? 'bg-cyan-400' : 'bg-indigo-500'}`} />
+                        <div>
+                          <div className="flex justify-between items-start pl-2 mb-4">
+                            <div>
+                              <h3 className="text-xl font-bold tracking-tight flex items-center gap-2 flex-wrap">
+                                <span>{res.actualSymbol.replace(/\/USDC|USDT|USDC/gi, '')}</span>
+                                {isKillZone && <span className="bg-cyan-500/20 text-cyan-400 border border-cyan-400 px-1.5 py-0.5 rounded text-[9px] shrink-0 animate-bounce">🎯 临界共振</span>}
+                                {res.crossZScore > 1.2 && <span className="bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/50 px-1.5 py-0.5 rounded text-[9px] shrink-0 shadow-[0_0_10px_rgba(217,70,239,0.4)] animate-pulse">🔥 全网 Alpha</span>}
+                              </h3>
+                              <p className="text-gray-400 font-mono text-sm">${res.currentPrice.toPrecision(5)}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className={`text-3xl font-black ${res.score >= 80 ? 'text-cyan-400' : 'text-indigo-400'}`}>{res.score}</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-2 pl-2 mb-6">
+                             {res.scoreBreakdown.filter(b => b.delta > 0).slice(0, 3).map((b,i) => (
+                               <div key={i} className="flex items-center gap-2 text-xs bg-gray-950 px-2 py-1.5 rounded border border-gray-800">
+                                 <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span><span className="text-gray-300" title={String(b.reason)}>{String(b.reason).length > 25 ? String(b.reason).substring(0, 25) + '...' : String(b.reason)}</span>
+                               </div>
+                             ))}
+                          </div>
+                        </div>
+                        <button onClick={() => addCoinToRoster(res.symbol)} disabled={isAdded} className={`w-full py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 ${isAdded ? 'bg-gray-950 text-gray-600 border border-gray-800 cursor-not-allowed' : 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/50 hover:bg-indigo-600 hover:text-white'}`}>
+                          {isAdded ? '已在监控阵列' : '+ 编入山寨兵团'}
+                        </button>
+                     </div>
+                   )})}
+                 </div>
+               )}
              </div>
-             <div className="min-h-[80px]">
-                 <CompactTagGroup items={data.vocals[activeVocalCategory]} selected={selectedVocals} onToggle={(item) => toggleSelection('vocals', item)} colorClass="bg-pink-600 hover:bg-pink-500" borderColor="border-pink-500/30" textColor="text-pink-200" />
-             </div>
-          </section>
-
-          {/* Production */}
-          <section className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 md:p-5 relative overflow-hidden transition-all hover:border-slate-700">
-             <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none"><Sliders size={80} /></div>
-             <h2 className="text-sm md:text-base lg:text-lg font-bold text-slate-300 uppercase flex items-center gap-2 mb-4"><Sliders size={16} className="text-orange-500"/> Production (制作)</h2>
-             <div className="flex flex-wrap gap-2 mb-4">
-                {Object.keys(data.production).map(category => (
-                    <button key={category} onClick={() => setActiveProductionCategory(category)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs md:text-sm xl:text-base font-bold transition-all relative ${activeProductionCategory === category ? 'bg-orange-500/10 border-orange-500/50 text-orange-400' : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-600'}`}>
-                      {category.split(' ')[0]} {checkProductionCategoryHasSelection(category) && <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse ml-1"></span>}
-                    </button>
-                ))}
-             </div>
-             <div className="min-h-[80px]">
-                 <CompactTagGroup items={data.production[activeProductionCategory]} selected={selectedProduction} onToggle={(item) => toggleSelection('production', item)} colorClass="bg-orange-600 hover:bg-orange-500" borderColor="border-orange-500/30" textColor="text-orange-200" />
-             </div>
-          </section>
-
-          {/* Vibes */}
-          <section className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 md:p-5 relative overflow-hidden transition-all hover:border-slate-700">
-             <div className="absolute top-0 right-0 p-3 opacity-5 pointer-events-none"><Zap size={80} /></div>
-             <h2 className="text-sm md:text-base lg:text-lg font-bold text-slate-300 uppercase flex items-center gap-2 mb-4"><Zap size={16} className="text-purple-500"/> Vibe (氛围)</h2>
-             <div className="flex flex-wrap gap-2 mb-4">
-                {Object.keys(data.vibes).map(category => (
-                    <button key={category} onClick={() => setActiveVibeCategory(category)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs md:text-sm xl:text-base font-bold transition-all relative ${activeVibeCategory === category ? 'bg-purple-500/10 border-purple-500/50 text-purple-400' : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-600'}`}>
-                      {category.split(' ')[0]} {checkVibeCategoryHasSelection(category) && <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse ml-1"></span>}
-                    </button>
-                ))}
-             </div>
-             <div className="min-h-[80px]">
-                 <CompactTagGroup items={data.vibes[activeVibeCategory]} selected={selectedVibes} onToggle={(item) => toggleSelection('vibes', item)} colorClass="bg-purple-600 hover:bg-purple-500" borderColor="border-purple-500/30" textColor="text-purple-200" />
-             </div>
-          </section>
+          </div>
         </div>
+      )}
 
-        {/* 右侧：实时预览与输出 */}
-        <div className="lg:col-span-5 space-y-4">
-          <div className="sticky top-24 space-y-4">
-            
-            {/* 1. 当前选中摘要 */}
-            <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-800/50 min-h-[100px]">
-                <h4 className="text-[10px] font-semibold text-slate-500 mb-3 uppercase flex justify-between">炼金坩埚 (Selected Ingredients)<span className="text-slate-600 cursor-pointer hover:text-red-400" onClick={clearAll}>清空 (Clear All)</span></h4>
-                {getFormattedIngredients().length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                        {selectedStyles.map(s => <TinyTag key={s} label={s} color="text-blue-400 border-blue-500/30" onRemove={() => toggleSelection('styles', s)}/>)}
-                        {selectedInstruments.map(s => <TinyTag key={s} label={s} color="text-emerald-400 border-emerald-500/30" onRemove={() => toggleSelection('instruments', s)}/>)}
-                        {selectedVocals.map(s => <TinyTag key={s} label={s} color="text-pink-400 border-pink-500/30" onRemove={() => toggleSelection('vocals', s)}/>)}
-                        {selectedProduction.map(s => <TinyTag key={s} label={s} color="text-orange-400 border-orange-500/30" onRemove={() => toggleSelection('production', s)}/>)}
-                        {selectedVibes.map(s => <TinyTag key={s} label={s} color="text-purple-400 border-purple-500/30" onRemove={() => toggleSelection('vibes', s)}/>)}
-                    </div>
-                ) : (<p className="text-xs md:text-sm text-slate-600 italic text-center py-2">请在左侧选择元素，或点击随机融合...</p>)}
-            </div>
-            
-            {/* 2. 炼金控制面板 */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
-               <div className="flex justify-between items-center border-b border-slate-800 pb-2 mb-2">
-                 <h4 className="text-xs md:text-sm font-bold text-slate-400 uppercase flex items-center gap-2"><FlaskConical size={14} className="text-pink-400"/> 炼金控制台 (Lab Controls)</h4>
-                 
-                 <button onClick={() => setIsStrategyLinked(!isStrategyLinked)} className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] md:text-xs font-bold transition-all border ${isStrategyLinked ? 'bg-blue-500/20 border-blue-500/50 text-blue-300 shadow-[0_0_8px_rgba(59,130,246,0.3)]' : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'}`} title="开启后，顶部的「随机融合」按钮将执行下方选择的策略逻辑">
-                    {isStrategyLinked ? <Power size={14} className="text-green-400"/> : <Power size={14} className="text-slate-500"/>}
-                    <span>联动融合 {isStrategyLinked ? 'ON' : 'OFF'}</span>
-                 </button>
-               </div>
-               
-               <div className="flex items-center gap-4">
-                 <div className="text-xs md:text-sm text-slate-500 w-16">Tempo</div>
-                 <div className="flex-1 flex gap-2">
-                   <button onClick={() => setTempo("Auto")} className={`px-3 py-1 rounded text-xs md:text-sm border ${tempo === "Auto" ? "bg-slate-700 border-slate-600 text-white" : "bg-slate-900 border-slate-800 text-slate-500"}`}>Auto</button>
-                   <input type="range" min="60" max="200" step="5" value={tempo === "Auto" ? 120 : tempo} onChange={(e) => setTempo(e.target.value)} className="flex-1 accent-pink-500 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer mt-1.5"/>
-                   <span className="text-xs md:text-sm font-mono w-12 text-right">{tempo === "Auto" ? "Auto" : `${tempo} BPM`}</span>
-                 </div>
-               </div>
-
-               <div className="flex flex-col gap-2">
-                 <div className="flex justify-between items-center">
-                    <div className="text-xs md:text-sm text-slate-500 flex items-center gap-2">
-                        Fusion Strategy (融合策略)
-                        {isStrategyLinked && <span className="text-[10px] text-blue-400 bg-blue-500/10 px-1 rounded">已联动</span>}
-                    </div>
-                 </div>
-                 <div className="grid grid-cols-2 gap-2">
-                    {strategies.map(st => (
-                      <button key={st.value} onClick={() => setFusionStrategy(st.value)} onMouseEnter={() => setHoveredStrategyDesc(st.desc)} onMouseLeave={() => setHoveredStrategyDesc("")} className={`text-[10px] md:text-xs px-2 py-1.5 rounded border transition-all text-left ${fusionStrategy === st.value ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300' : 'bg-slate-900 border-slate-800 text-slate-500 hover:border-slate-700'}`}>
-                        {st.value}
-                      </button>
-                    ))}
-                 </div>
-                 <div className="h-8 text-[10px] md:text-xs text-slate-400 bg-black/20 rounded p-2 flex items-center transition-all border border-slate-800/50">
-                    <Info size={12} className="mr-2 text-indigo-400/70 shrink-0" />
-                    <span className="line-clamp-2">{hoveredStrategyDesc || strategies.find(s => s.value === fusionStrategy)?.desc || "选择一种策略以决定融合的方式..."}</span>
-                 </div>
-               </div>
+      {/* --- 原有深度图表弹窗 --- */}
+      {selectedCoin && (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-2 sm:p-4 p-20 bg-black/80 backdrop-blur-sm transition-opacity">
+          <div className="bg-gray-950 border border-gray-700 rounded-2xl w-[96vw] max-w-[1600px] h-[95vh] flex flex-col overflow-hidden shadow-2xl shadow-cyan-900/20 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-4 border-b border-gray-800 bg-gray-900/50 z-20">
+              <div className="flex items-center gap-4">
+                <h2 className="text-2xl font-bold flex items-center gap-2">
+                  {getZhName(selectedCoin.actualSymbol) && <span className="text-white">{getZhName(selectedCoin.actualSymbol)}</span>}
+                  <span className={getZhName(selectedCoin.actualSymbol) ? 'text-gray-400 text-lg' : ''}>{selectedCoin.actualSymbol.replace(/\/USDC|USDT|USDC/gi, '')}</span>
+                  <span className="text-sm font-normal text-gray-500 bg-gray-800 px-2 py-0.5 rounded">{selectedCoin.isHL ? 'USDC' : 'USDT'}</span>
+                  {selectedCoin.isHL && <span className="bg-purple-900/40 text-purple-400 px-2 py-0.5 text-xs rounded border border-purple-500/30 ml-2">Hyperliquid 节点直连</span>}
+                  {isLiveMode && !selectedCoin.isHL && <span className="bg-green-500/20 text-green-400 px-2 py-0.5 text-xs rounded border border-green-500/50 flex items-center gap-1"><Radio className="w-3 h-3 animate-pulse"/> LIVE</span>}
+                </h2>
+                <div className="h-6 w-px bg-gray-700 hidden sm:block"></div>
+                <div className="hidden sm:flex items-center gap-2 cursor-help"
+                  onMouseEnter={(e) => handleMouseEnterTooltip('score', selectedCoin, e)}
+                  onMouseLeave={handleMouseLeaveTooltip}>
+                  <span className="text-sm text-gray-400 border-b border-dashed border-gray-600 pb-0.5">系统评级:</span>
+                  <span className={`text-lg font-black ${selectedCoin.score >= 75 ? 'text-cyan-400' : selectedCoin.score >= 55 ? 'text-indigo-400' : selectedCoin.score >= 35 ? 'text-gray-400' : 'text-red-400'}`}>
+                    {selectedCoin.score} 分
+                  </span>
+                </div>
+              </div>
+              <button onClick={() => { setSelectedCoin(null); setTooltipData(null); setMacroPosterData(null); setAiReportContent(null); setIsGeneratingReport(false); setIsEditingApiKey(false); setShowHeatmap(false); }} className="p-2 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white transition-colors"><X className="w-5 h-5" /></button>
             </div>
 
-            {/* 3. 生成与预览 */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl relative">
-              <div className="bg-slate-800/50 px-4 py-3 border-b border-slate-800 flex justify-between items-center"><h3 className="text-xs md:text-sm font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2"><Sparkles size={14} className="text-yellow-400"/> Final Prompt</h3><span className="text-[10px] text-slate-500 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">SUNO AI Ready</span></div>
-              <div className="grid grid-cols-2 gap-px bg-slate-800 border-b border-slate-800">
-                  <button onClick={() => handleGenerateClick('template')} className="py-3 px-2 hover:bg-slate-700/50 text-slate-300 text-xs md:text-sm font-bold flex items-center justify-center gap-2 transition-colors group"><FileText size={14} className="text-blue-400 group-hover:scale-110 transition-transform"/> 🧬 结构化模版</button>
-                  <button onClick={() => handleGenerateClick('ai')} disabled={isSynthesizing || getFormattedIngredients().length === 0} className="py-3 px-2 hover:bg-slate-700/50 text-slate-300 text-xs md:text-sm font-bold flex items-center justify-center gap-2 transition-colors group disabled:opacity-50">{isSynthesizing ? <Loader2 size={14} className="animate-spin"/> : <TestTube2 size={14} className="text-purple-400 group-hover:scale-110 transition-transform"/>} 🧪 AI 智能炼成</button>
-              </div>
-              <div className="p-4 min-h-[160px] flex flex-col bg-black/20 relative">
-                {finalPrompt ? (<pre className="font-mono text-sm md:text-base xl:text-lg text-slate-300 whitespace-pre-wrap leading-relaxed flex-grow animate-in fade-in">{String(finalPrompt)}</pre>) : (<div className="flex flex-col items-center justify-center h-full text-slate-600 gap-2 min-h-[120px]"><ArrowRight size={24} className="-rotate-45 opacity-20"/><p className="text-xs md:text-sm text-center px-4">先在左侧选材，再设置 BPM/策略，最后点击上方按钮生成引导词</p></div>)}
-              </div>
-              <div className="p-3 bg-slate-800/30 border-t border-slate-800 flex justify-end">
-                <button onClick={() => copyToClipboard(finalPrompt)} disabled={!finalPrompt} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs md:text-sm font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${copySuccess ? 'bg-green-600 text-white shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'bg-slate-200 text-slate-900 hover:bg-white'}`}>{copySuccess ? <><RefreshCw size={12}/> Copied!</> : <><Copy size={12}/> Copy</>}</button>
-              </div>
-            </div>
-
-            {/* AI 深度分析卡片 */}
-            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-              <div className="bg-slate-800/50 px-4 py-3 border-b border-slate-800 flex justify-between items-center"><h3 className="text-xs md:text-sm font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2"><Microscope size={14} className="text-cyan-400"/> AI Sonic Analysis (深度分析)</h3></div>
-              <div className="p-4 bg-slate-950/30">
-                {!analysisResult && !isAnalyzing ? (
-                  <div className="flex flex-col items-center justify-center py-6 text-slate-600 gap-3"><FileText size={32} className="opacity-20" /><p className="text-xs md:text-sm text-center max-w-[200px]">生成引导词后，点击下方按钮，让 AI 为您解读这份独一无二的音乐配方。</p><button onClick={analyzeMix} disabled={!finalPrompt} className="mt-2 px-4 py-1.5 rounded-full bg-slate-800 hover:bg-cyan-900/50 text-cyan-400 border border-cyan-900/30 text-xs md:text-sm font-bold transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"><Sparkles size={12} /> ✨ 深度分析 (Analyze)</button></div>
+            <div className="flex-1 overflow-y-auto flex flex-col lg:flex-row">
+              <div className="w-full lg:w-[60%] xl:w-[65%] h-[35vh] md:h-[50vh] lg:h-full border-b lg:border-b-0 lg:border-r border-gray-800 bg-[#131722] relative p-1 shrink-0">
+                {chartDataCache[selectedCoin.symbol] ? (
+                  <TVChart data={chartDataCache[selectedCoin.symbol]} coinInfo={selectedCoin} showHeatmap={showHeatmap} />
                 ) : (
-                  <div className="space-y-3">{isAnalyzing ? (<div className="flex flex-col items-center justify-center py-8 gap-2"><Loader2 size={24} className="animate-spin text-cyan-500" /><span className="text-xs md:text-sm text-slate-500">正在解析声学特征...</span></div>) : (<div className="animate-in fade-in slide-in-from-bottom-2 duration-500"><div className="text-sm md:text-base xl:text-lg text-slate-300 leading-relaxed whitespace-pre-wrap font-sans">{String(analysisResult)}</div>{analysisError && (<p className="text-red-400 text-xs mt-2">{String(analysisError)}</p>)}<div className="mt-3 pt-3 border-t border-slate-800/50 flex justify-end"><button onClick={analyzeMix} className="text-[10px] md:text-xs text-slate-500 hover:text-cyan-400 flex items-center gap-1 transition-colors"><RefreshCw size={10} /> 重新分析</button></div></div>)}</div>
+                  <div className="flex items-center justify-center w-full h-full text-gray-500"><RefreshCw className="w-8 h-8 animate-spin" /></div>
                 )}
+                <div className="absolute inset-0 pointer-events-none border border-transparent hover:border-gray-700 transition-colors z-10" />
+              </div>
+
+              {/* 右侧数据与操作面板 */}
+              <div className="w-full lg:w-[40%] xl:w-[35%] p-3 sm:p-5 bg-gray-950 space-y-3 sm:space-y-5 overflow-y-auto relative z-20">
+                <div className="bg-gradient-to-br from-indigo-950/40 to-cyan-950/20 border border-indigo-500/30 rounded-xl p-4 shadow-[0_0_15px_rgba(79,70,229,0.1)] relative">
+                  <div className="flex justify-between items-center mb-3">
+                    <h4 className="text-sm font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-400 flex items-center gap-1.5">
+                      <Brain className="w-4 h-4 text-indigo-400" /> Gemini 量化投顾大模型
+                      {geminiApiKey && !isGeneratingReport && (
+                        <button onClick={() => { setTempApiKey(geminiApiKey); setIsEditingApiKey(!isEditingApiKey); }} className="ml-1 text-gray-500 hover:text-indigo-400 transition-colors" title="配置 API Key"><span className="text-sm">⚙️</span></button>
+                      )}
+                    </h4>
+                    {(!geminiApiKey || isEditingApiKey) ? null : (
+                      !aiReportContent && !isGeneratingReport && (
+                        <button onClick={() => generateAIReport(selectedCoin)} className="bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/50 text-indigo-300 text-xs px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1 font-bold">
+                          <Sparkles className="w-3.5 h-3.5" /> 深度推演
+                        </button>
+                      )
+                    )}
+                  </div>
+                  
+                  {(!geminiApiKey || isEditingApiKey) && !isGeneratingReport && (
+                    <div className="mb-3 flex items-center gap-2 bg-black/40 p-2 rounded-lg border border-indigo-500/30">
+                      <input type="password" placeholder="在此填入 Gemini API Key..." value={tempApiKey} onChange={(e) => setTempApiKey(e.target.value)} className="flex-1 bg-transparent text-xs text-gray-200 px-2 py-1 focus:outline-none placeholder-gray-600" />
+                      <button onClick={() => { const key = tempApiKey.trim(); setGeminiApiKey(key); localStorage.setItem('star_gemini_api_key', key); setIsEditingApiKey(false); }} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded transition-colors whitespace-nowrap">保存</button>
+                      {geminiApiKey && isEditingApiKey && <button onClick={() => setIsEditingApiKey(false)} className="text-gray-400 hover:text-white pl-1 pr-2"><X className="w-3 h-3"/></button>}
+                    </div>
+                  )}
+
+                  {isGeneratingReport && (
+                    <div className="py-6 text-center space-y-3">
+                       <div className="relative mx-auto w-12 h-12">
+                         <div className="absolute inset-0 border-2 border-indigo-500/20 rounded-full"></div>
+                         <div className="absolute inset-0 border-2 border-cyan-400 rounded-full border-t-transparent animate-spin"></div>
+                         <Brain className="absolute inset-0 m-auto w-5 h-5 text-indigo-400 animate-pulse" />
+                       </div>
+                       <div className="text-sm text-indigo-300 font-mono animate-pulse">AI 神经网络交叉会诊中...</div>
+                    </div>
+                  )}
+
+                  {aiReportContent && (
+                    <div className="mt-2 p-3 bg-black/40 rounded-lg border border-indigo-500/20">
+                       {renderMarkdown(aiReportContent)}
+                       <div className="mt-4 pt-3 border-t border-indigo-500/20 flex justify-between items-center">
+                         <button onClick={() => generateMacroPoster(selectedCoin, aiReportContent)} disabled={isGeneratingMacro} className={`text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-bold transition-all ${isGeneratingMacro ? 'bg-cyan-900/50 text-cyan-500 cursor-not-allowed' : 'bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/40 border border-cyan-500/30'}`}>
+                           {isGeneratingMacro ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+                           {isGeneratingMacro ? '正在光刻海报...' : '生成 Alpha 密报卡'}
+                         </button>
+                         <button onClick={() => generateAIReport(selectedCoin)} disabled={isGeneratingReport} className="text-[10px] text-gray-500 hover:text-indigo-400 flex items-center gap-1 transition-colors"><RefreshCw className={`w-3 h-3 ${isGeneratingReport ? 'animate-spin' : ''}`} /> 重新推演</button>
+                       </div>
+                    </div>
+                  )}
+                  
+                  {!aiReportContent && !isGeneratingReport && (
+                    <div className="flex justify-between items-end mt-2">
+                      <button onClick={() => setShowHeatmap(!showHeatmap)} className={`text-xs px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 font-bold ${showHeatmap ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.2)]' : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-amber-400'}`}>
+                         <Flame className={`w-3.5 h-3.5 ${showHeatmap ? 'animate-pulse text-amber-400' : 'text-gray-500'}`} /> 高杠杆清算热力图 {showHeatmap ? 'ON' : 'OFF'}
+                      </button>
+                      <button onClick={() => generateMacroPoster(selectedCoin, null)} disabled={isGeneratingMacro} className="text-[10px] bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-200 border border-gray-700 px-2 py-1 rounded transition-colors flex items-center gap-1"><Camera className="w-3 h-3" /> 海报</button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                   <div className="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                     <h3 className="text-[10px] text-gray-400 mb-2 flex items-center gap-1"><Target className="w-3 h-3"/> {selectedCoin.direction === 'long' ? '下方冰山买单墙' : '上方冰山卖单墙'}</h3>
+                     {selectedCoin.buyWall.price > 0 ? (
+                       <>
+                        <div className="flex justify-between items-center mb-1"><span className="text-xs text-gray-500">防守阻力</span><span className="text-sm font-mono text-cyan-400">${selectedCoin.buyWall.price.toPrecision(5)}</span></div>
+                        <div className="flex justify-between items-center"><span className="text-xs text-gray-500">墙体金额</span><span className="text-sm font-mono text-gray-300">{(selectedCoin.buyWall.value / 1000).toFixed(1)}k U</span></div>
+                       </>
+                     ) : (
+                       <div className="text-xs text-gray-500 mt-3 text-center">{selectedCoin.direction === 'long' ? '下方 10% 暂无巨额挂单' : '上方 10% 暂无巨额挂单'}</div>
+                     )}
+                   </div>
+                </div>
+
+                <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden p-4">
+                   <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2"><BarChart2 className="w-3.5 h-3.5" /> VPVR 筹码分布 (Volume Profile)</h3>
+                  <div className="h-40 flex flex-col justify-between py-1 relative border-l border-gray-800 pl-2">
+                    {selectedCoin.vpvrData && selectedCoin.vpvrData.map((v, i) => {
+                      const isEntryZone = Math.abs(v.price - selectedCoin.plan.entryPoint) <= ((selectedCoin.vpvrData[0].price - selectedCoin.vpvrData[selectedCoin.vpvrData.length-1].price) / 60 / 2);
+                      return (
+                      <div key={i} className="flex items-center w-full relative group flex-1 min-h-[1px] my-[0.5px]">
+                        <div className="absolute left-0 h-full bg-cyan-900/50 rounded-r transition-all group-hover:bg-cyan-600/60" style={{ width: `${v.normalizedVol * 100}%` }}></div>
+                        {isEntryZone && <div className="absolute left-0 h-[2px] bg-cyan-400 rounded-r z-20 top-1/2 -translate-y-1/2 shadow-[0_0_8px_rgba(34,211,238,1)]" style={{ width: `100%` }}></div>}
+                        <div className="absolute left-1 text-[8px] text-gray-500 font-mono opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">Vol: {(v.volume/1000).toFixed(1)}K</div>
+                        {i % 10 === 0 && <div className="absolute -left-[50px] text-[8px] text-gray-500/50 font-mono w-[45px] text-right pointer-events-none">{v.price.toPrecision(4)}</div>}
+                      </div>
+                    )})}
+                  </div>
+                  <div className="mt-3 text-[10px] text-gray-500 flex justify-between items-center border-t border-gray-800/50 pt-2">
+                     <span>高亮发光线 = 计划建仓位</span>
+                     <span className="font-mono text-cyan-400 font-bold">${selectedCoin.plan.entryPoint.toPrecision(5)}</span>
+                  </div>
+                </div>
+                
+                <div className="p-4 rounded-xl bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 shadow-inner">
+                  <h4 className="text-xs text-gray-400 mb-3 flex items-center gap-1 uppercase font-semibold"><Calculator className="w-3.5 h-3.5" /> 连续时间分数半凯利 (Fractional Kelly)</h4>
+                  <div className="flex gap-2 mb-3">
+                    <div className="flex-1">
+                      <label className="text-[10px] text-gray-500 block mb-1">总资金 (USDT)</label>
+                      <input type="number" value={totalCapital} onChange={(e) => setTotalCapital(Number(e.target.value))} className="w-full bg-gray-950 border border-gray-700 rounded p-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500" />
+                    </div>
+                    <div className="flex-1">
+                      <label className="text-[10px] text-gray-500 block mb-1">人工风控限额 (%)</label>
+                      <input type="number" value={riskPerTrade} onChange={(e) => setRiskPerTrade(Number(e.target.value))} step="0.5" className="w-full bg-gray-950 border border-gray-700 rounded p-1.5 text-xs text-gray-200 focus:outline-none focus:border-cyan-500" />
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const winRate = parseFloat(selectedCoin.mcResults.targetProb) / 100;
+                    const odds = parseFloat(selectedCoin.plan.rrr);
+                    let kellyPct = 0;
+                    if (odds > 0 && winRate > 0) kellyPct = winRate - ((1 - winRate) / odds);
+                    
+                    const volatilityDrag = Math.max(0.2, 1 - (parseFloat(selectedCoin.metrics.atr) / selectedCoin.currentPrice * 5));
+                    const fractionalKelly = kellyPct > 0 ? kellyPct * 0.5 * volatilityDrag : 0; 
+                    
+                    const recommendedRisk = fractionalKelly > 0 ? (fractionalKelly * 100).toFixed(1) : 0;
+                    const isKellyWarning = fractionalKelly <= 0;
+                    const pos = calculatePosition(selectedCoin.plan.entryPoint, selectedCoin.plan.stopLoss, totalCapital, riskPerTrade);
+                    
+                    return (
+                      <div className="bg-gray-950/50 rounded p-2.5 border border-gray-800/50">
+                        <div className="flex justify-between items-center mb-1.5 pb-1.5 border-b border-gray-800/50">
+                          <span className="text-[10px] text-indigo-400 font-bold flex items-center gap-1"><Brain className="w-3 h-3"/> Kelly 引擎建议</span>
+                          <span className={`font-mono text-xs font-bold ${isKellyWarning ? 'text-red-400' : 'text-green-400'}`}>{isKellyWarning ? '不建议操作 (期望为负)' : `最佳风控比例: ${recommendedRisk}%`}</span>
+                        </div>
+                        <div className="flex justify-between items-center mb-1"><span className="text-[10px] text-gray-500">{selectedCoin.direction === 'long' ? '计划入场买单量:' : '计划开空合约量:'}</span><span className="font-mono text-sm text-cyan-400 font-bold">{pos.coins}</span></div>
+                        <div className="flex justify-between items-center mb-1"><span className="text-[10px] text-gray-500">占用保证金 (价值):</span><span className="font-mono text-xs text-gray-300">${pos.value}</span></div>
+                        <div className="flex justify-between items-center border-t border-gray-800/50 pt-1 mt-1"><span className="text-[10px] text-red-500/70">若打损最大亏损:</span><span className="font-mono text-xs text-red-400">-${pos.riskAmount}</span></div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-gray-900 rounded-lg p-3 border border-gray-800/50">
+                    <div className="text-[10px] text-gray-500 mb-1 cursor-help inline-block border-b border-dashed border-gray-600 hover:text-gray-300 transition-colors"
+                      onMouseEnter={(e) => handleMouseEnterTooltip('beta', selectedCoin, e)}
+                      onMouseLeave={handleMouseLeaveTooltip}>Pearson 走势相关性</div>
+                    <div className={`font-mono text-sm ${parseFloat(selectedCoin.metrics.beta) < 0.3 ? 'text-indigo-400 font-bold' : 'text-gray-400'}`}>{selectedCoin.metrics.beta}</div>
+                  </div>
+                  <div className="bg-gray-900 rounded-lg p-3 border border-gray-800/50">
+                    <div className="text-[10px] text-gray-500 mb-1">Z-Score 布林挤压度</div>
+                    <div className="font-mono text-sm text-gray-300">{selectedCoin.metrics.bbw}</div>
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>
         </div>
-      </main>
+      )}
+
+      {/* --- 🚀 终极武器：全局悬浮传送门 --- */}
+      {tooltipData && tooltipData.res && (
+        <div 
+           className={`fixed z-[9999] pointer-events-auto transition-all duration-200 ease-out ${tooltipData.rect.top < 380 ? '-translate-x-1/2 pt-5' : '-translate-x-1/2 -translate-y-full pb-5'}`} 
+           style={{ left: tooltipData.rect.left + tooltipData.rect.width / 2, top: tooltipData.rect.top < 380 ? tooltipData.rect.bottom : tooltipData.rect.top }}
+           onMouseEnter={handleTooltipWindowEnter}
+           onMouseLeave={handleTooltipWindowLeave}
+        >
+          {/* 透明桥 (Invisible Bridge) 填补悬浮间隙 */}
+          <div className="absolute inset-0 -z-10 bg-transparent" style={{ top: tooltipData.rect.top < 380 ? '-20px' : 'auto', bottom: tooltipData.rect.top >= 380 ? '-20px' : 'auto', height: 'calc(100% + 20px)' }}></div>
+          
+          <div className="relative z-10">
+            {/* AI 面板 */}
+            {tooltipData.type === 'ai' && tooltipData.res.lastTd && (
+              <div className="w-[290px] md:w-[320px] bg-gray-950/98 backdrop-blur-xl border border-cyan-500/50 rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.9)] p-4 text-left animate-in fade-in zoom-in-95 duration-200">
+                <div className="text-xs font-bold text-cyan-400 mb-3 pb-2 border-b border-gray-800 flex items-center gap-1.5"><Brain className="w-4 h-4"/> TD-Matrix AI 胜率引擎</div>
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-[10px] text-gray-500 font-bold mb-1">[AI 因子解析]</div>
+                    <div className="text-[11px] text-gray-400 leading-relaxed bg-black/50 p-2 rounded border border-gray-800">当前测算胜率 <strong>{tooltipData.res.lastTd.aiScore}%</strong>。该模型综合考量了：当前是否触发 TD 序列极限、机构订单流(CVD)是否出现底层冰山吸收、以及是否完成对前低/前高的流动性扫荡。</div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* RRR 面板 */}
+            {tooltipData.type === 'rrr' && tooltipData.res.rrrDetails && (
+              <div className="w-[290px] md:w-[320px] bg-gray-950/98 backdrop-blur-xl border border-indigo-500/50 rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.9)] p-4 text-left animate-in fade-in zoom-in-95 duration-200">
+                <div className="text-xs font-bold text-cyan-400 mb-3 pb-2 border-b border-gray-800 flex items-center gap-1.5"><Brain className="w-4 h-4"/> V11 盈亏比推演引擎</div>
+                <div className="space-y-3">
+                  <div><div className="text-[10px] text-gray-500 font-bold mb-1">[1. 波动基准]</div><div className="text-xs text-gray-300 flex justify-between"><span>100周期平滑ATR:</span><span className="font-mono text-cyan-400">${tooltipData.res.rrrDetails.smoothedATR.toPrecision(4)}</span></div></div>
+                  <div>
+                    <div className="text-[10px] text-gray-500 font-bold mb-1">[2. SMC 机构级顺序狙击点]</div>
+                    <div className="text-[11px] text-gray-300 bg-gray-900/50 p-2 rounded border border-gray-800 mb-2 mt-1">
+                      <div className="flex items-center gap-1.5 font-bold text-cyan-400 mb-1"><Target className="w-3.5 h-3.5"/> 顺位最优目标点</div>
+                      <div className="text-gray-400 mb-1">{tooltipData.res.plan.entryType}</div>
+                      <div className="font-mono text-lg text-white shadow-cyan-500/50 drop-shadow-md">${tooltipData.res.plan.entryPoint.toPrecision(5)}</div>
+                    </div>
+                    {tooltipData.res.plan.smcOB && (
+                      <div className="text-[9px] text-rose-300/90 bg-rose-950/40 px-1.5 py-1.5 rounded mt-1.5 border border-rose-800/50 flex flex-col gap-0.5">
+                        <span className="font-bold flex items-center gap-1 text-rose-400 animate-pulse">🛡️ ATR防爆提纯阵列 (Defensive Refinement)</span>
+                        <span className="leading-tight text-gray-400">底层系统根据您配置的 Pine Script 逻辑，已过滤超过 2x/3x ATR 宽度的危险雷区，并将挂单区<strong className="text-rose-400">大幅向内提纯</strong>，杜绝滑点被套。</span>
+                      </div>
+                    )}
+                    {tooltipData.res.rrrDetails.isFOMO && (
+                      <>
+                        <div className="text-[9px] text-yellow-500/80 bg-yellow-900/20 px-1 py-0.5 rounded mt-1.5 border border-yellow-700/30">*警告: 现货当前并未在折扣区，严禁无脑市价追入，遵守死等机制。</div>
+                        <div className="flex items-center justify-between text-[10px] mt-2 pt-1 border-t border-gray-800/50"><span className="text-gray-500">现价直接追入盈亏比:</span><span className="font-mono font-bold text-red-400">{tooltipData.res.rrrDetails.liveRRR} (高危)</span></div>
+                      </>
+                    )}
+                    <div className="text-xs text-gray-300 flex justify-between mt-1.5 pt-1.5 border-t border-gray-800/50"><span>机构极值防守位 (Stop):</span><span className="font-mono text-red-400">${tooltipData.res.plan.stopLoss.toPrecision(5)}</span></div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500 font-bold mb-1">[3. 环境判定 - 吃肉空间]</div>
+                    <div className="text-[11px] text-gray-400 flex justify-between"><span>144宏观均线(ALMA):</span><span className="font-mono">${tooltipData.res.rrrDetails.alma144?.toPrecision(5) || 'N/A'}</span></div>
+                    <div className="mt-2 text-[10px] leading-relaxed text-gray-400 bg-black/50 p-2 rounded border border-gray-800"><span className="text-gray-300 font-bold">逻辑: </span>{String(tooltipData.res.rrrDetails.regimeReason)}</div>
+                    <div className="text-xs text-gray-200 flex justify-between mt-1 pt-1 border-t border-gray-800/50"><span>目标推演价:</span><span className="font-mono text-green-400">${tooltipData.res.rrrDetails.targetPrice.toPrecision(5)}</span></div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* MC 面板 */}
+            {tooltipData.type === 'mc' && tooltipData.res.mcResults && (
+              <div className="w-[290px] md:w-[320px] bg-gray-950/98 backdrop-blur-xl border border-indigo-500/50 rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.9)] p-4 text-left animate-in fade-in zoom-in-95 duration-200">
+                <div className="text-xs font-bold text-cyan-400 mb-3 pb-2 border-b border-gray-800 flex items-center gap-1.5"><Layers className="w-4 h-4"/> 历史自举法 2000x 随机推演</div>
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-[10px] text-gray-500 font-bold mb-1">[2. 平行宇宙设定]</div>
+                    <div className="text-[11px] text-gray-300 flex justify-between"><span>推演次数:</span><span className="font-mono">2,000 条未来轨迹</span></div>
+                    <div className="text-[11px] text-gray-300 flex justify-between mt-0.5"><span>单步波动率:</span><span className="font-mono text-cyan-400">{tooltipData.res.mcResults.stepVol}%</span></div>
+                  </div>
+                  <div className="pt-2 border-t border-gray-800">
+                    <div className="text-[10px] text-gray-500 font-bold mb-2">[4. 2000 次时空推演结果]</div>
+                    <div className="flex justify-between items-center text-[11px]"><span className="text-gray-400">🟢 率先触达止盈:</span><span className="font-mono text-green-400 font-bold">{tooltipData.res.mcResults.targetProb}%</span></div>
+                    <div className="flex justify-between items-center text-[11px] mt-1"><span className="text-gray-400">🔴 率先触达止损:</span><span className="font-mono text-red-400 font-bold">{tooltipData.res.mcResults.stopProb}%</span></div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Score 面板 */}
+            {tooltipData.type === 'score' && tooltipData.res.scoreBreakdown && (
+              <div className="w-[290px] md:w-[320px] bg-gray-950/98 backdrop-blur-xl border border-cyan-500/50 rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.9)] p-4 text-left animate-in fade-in zoom-in-95 duration-200">
+                <div className="text-xs font-bold text-cyan-400 mb-3 pb-2 border-b border-gray-800 flex items-center justify-between"><span className="flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /> V12 对数平滑评分明细</span><span className="font-mono text-gray-500">基准分 50</span></div>
+                <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+                  {tooltipData.res.scoreBreakdown.length > 0 ? (
+                    tooltipData.res.scoreBreakdown.map((item, i) => (
+                      <div key={i} className="flex justify-between items-center text-xs bg-gray-900/50 rounded p-2 border border-gray-800/50"><span className="text-gray-400 truncate pr-2" title={String(item.reason)}>{String(item.reason)}</span><span className={`font-mono font-bold whitespace-nowrap ${item.delta > 0 ? 'text-green-400' : 'text-red-400'}`}>{item.delta > 0 ? '+' : ''}{item.delta}</span></div>
+                    ))
+                  ) : <div className="text-center text-gray-500 text-xs py-2">无特殊加减分项</div>}
+                </div>
+                <div className="mt-3 pt-3 border-t border-gray-800 flex justify-between items-center"><span className="text-xs text-gray-500">平滑折叠后最终得分</span><span className={`text-lg font-black ${tooltipData.res.score >= 75 ? 'text-cyan-400' : tooltipData.res.score >= 55 ? 'text-indigo-400' : tooltipData.res.score >= 35 ? 'text-gray-400' : 'text-red-400'}`}>{tooltipData.res.score}</span></div>
+              </div>
+            )}
+
+            {/* Beta 面板 */}
+            {tooltipData.type === 'beta' && (
+              <div className="w-[290px] md:w-[320px] bg-gray-950/98 backdrop-blur-xl border border-indigo-500/50 rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.9)] p-4 text-left animate-in fade-in zoom-in-95 duration-200">
+                <div className="text-xs font-bold text-indigo-400 mb-3 pb-2 border-b border-gray-800 flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> Pearson 走势相关性</div>
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-[10px] text-gray-500 font-bold mb-1">[量化解读]</div>
+                    <div className="flex justify-between items-center text-[11px] mt-1.5"><span className="text-gray-400">&gt; 0.7:</span><span className="text-red-400">高度联动 (随波逐流)</span></div>
+                    <div className="flex justify-between items-center text-[11px] mt-1.5"><span className="text-gray-400">0.3 - 0.7:</span><span className="text-gray-300">正常联动</span></div>
+                    <div className="flex justify-between items-center text-[11px] mt-1.5"><span className="text-gray-400">&lt; 0.3:</span><span className="text-indigo-400 font-bold tracking-wide">独立行情 (Alpha 抱团)</span></div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Taker 面板 */}
+            {tooltipData.type === 'taker' && (
+              <div className="w-[300px] md:w-[340px] bg-gray-950/98 backdrop-blur-xl border border-teal-500/50 rounded-xl shadow-[0_0_40px_rgba(0,0,0,0.9)] p-4 text-left animate-in fade-in zoom-in-95 duration-200">
+                <div className="text-xs font-bold text-teal-400 mb-3 pb-2 border-b border-gray-800 flex items-center gap-1.5"><Zap className="w-3.5 h-3.5" /> 逐笔微观订单流 (分层 CVD)</div>
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-[10px] text-gray-500 font-bold mb-1">[底层指标：真实归集交易 (aggTrade) 推演]</div>
+                    <div className="text-[11px] text-gray-300 leading-relaxed bg-black/50 p-2.5 rounded border border-gray-800 mt-2">
+                       系统目前直连了 Binance 节点的 <strong className="text-teal-400">毫秒级底层逐笔数据</strong>。通过将每一笔真实的资金碰撞，按成交金额强制剥离为两个阶层：<br/><br/>
+                       <span className="text-purple-400 font-bold">1. 巨鲸层 (&gt; 50,000 U/笔)</span>：代表主力资金的真实意图。<br/>
+                       <span className="text-gray-400 font-bold">2. 散户层 (&lt; 10,000 U/笔)</span>：代表情绪化噪音。<br/><br/>
+                       当图表上出现<strong className="text-rose-400">巨鲸疯狂做负 CVD（派发）</strong>，而<strong className="text-teal-400">散户在做正 CVD（接盘）</strong>时，这种背离是所有“高位诱多/洗盘”形态中最不可被伪造的终极信号。
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
-};
-
-export default App;
+}
