@@ -1,5 +1,6 @@
 # 星辰妙漫炒币器(Star Matrix Terminal)
 > 极客级纯前端加密货币智能选币监控终端 | 零后端依赖 | 直连交易所API
+<img width="2054" height="1666" alt="2e5798c6-6cad-4b89-80e1-c8c7c0ac4de8" src="https://github.com/user-attachments/assets/e2a727a6-aac4-4090-b9a9-bc8998a57eef" />
 
 
 
