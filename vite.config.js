@@ -10,16 +10,25 @@ export default defineConfig({
       exclude: [/node_modules/],
       apply: 'build',
       options: {
-        compact: true, // 极致压缩
-        controlFlowFlattening: true, // 打乱代码执行顺序（防盗神技）
-        controlFlowFlatteningThreshold: 0.7, 
-        deadCodeInjection: true, // 注入废代码干扰视线
+        compact: true,
+        controlFlowFlattening: true,
+        controlFlowFlatteningThreshold: 0.7,
+        deadCodeInjection: true,
         deadCodeInjectionThreshold: 0.4,
-        stringArray: true, // 字符串加密
-        stringArrayEncoding: ['base64'], 
+        stringArray: true,
+        stringArrayEncoding: ['base64'],
         stringArrayThreshold: 0.75,
         unicodeEscapeSequence: false
       }
     })
   ],
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.js', 'src/**/*.test.jsx'],
+    coverage: {
+      provider: 'v8',
+      include: ['src/lib/**'],
+      reporter: ['text', 'lcov'],
+    },
+  },
 })
