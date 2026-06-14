@@ -74,10 +74,54 @@ let hlDictionary = {};
 let globalAssetList = [];
 let isGlobalDataLoaded = false;
 
+// ── Binance 地区封锁应对（451 Geo-Block Fallback）──────────────────────────────
+// 若所在地区 api.binance.com 返回 451，应对策略：
+//   开发环境：Vite dev server 内置代理（server.proxy），无需任何配置
+//   生产环境：在 .env 中配置 VITE_BINANCE_PROXY_BASE 指向自建反向代理服务器
+//             代理服务器需透传 /api/* 和 /fapi/* 路径到对应的 Binance 源站
+const _DEV_MODE = import.meta.env.DEV;
+const _BINANCE_PROXY = (import.meta.env.VITE_BINANCE_PROXY_BASE || '').replace(/\/$/, '');
+
+// 开发环境使用 '' 空字符串作为 base——_swapUrlBase 替换后得到相对路径 /api/v3/...
+// 由 Vite dev proxy 在服务端转发，完全绕过浏览器 CORS 限制
+const BINANCE_API_MIRRORS = [
+  ...(_BINANCE_PROXY ? [_BINANCE_PROXY] : []),
+  ...(_DEV_MODE ? [''] : []),
+  'https://api.binance.com',
+  'https://api1.binance.com',
+  'https://api2.binance.com',
+  'https://api3.binance.com',
+  'https://api4.binance.com',
+];
+const FAPI_MIRRORS = [
+  ...(_BINANCE_PROXY ? [_BINANCE_PROXY] : []),
+  ...(_DEV_MODE ? [''] : []),
+  'https://fapi.binance.com',
+  'https://fapi1.binance.com',
+  'https://fapi2.binance.com',
+];
+const BINANCE_STREAM_MIRRORS = [
+  ...(_BINANCE_PROXY ? [_BINANCE_PROXY.replace(/^http/, 'ws')] : []),
+  ...(_DEV_MODE ? [`${window.location.origin.replace(/^http/, 'ws')}/binance-ws`] : []),
+  'wss://stream.binance.com:9443',
+  'wss://stream1.binance.com:9443',
+  'wss://stream2.binance.com:9443',
+];
+let isBinanceBlocked = false;
+let _binanceStreamMirrorIdx = 0;
+
+const _getBinanceMirrors = (url) => {
+  if (/https?:\/\/fapi[0-9]*\.binance\.com/.test(url)) return FAPI_MIRRORS;
+  if (/https?:\/\/api[0-9]*\.binance\.com/.test(url)) return BINANCE_API_MIRRORS;
+  return null;
+};
+const _swapUrlBase = (url, newBase) =>
+  url.replace(/https?:\/\/[a-zA-Z0-9-]+\.binance\.com(:[0-9]+)?/, newBase);
+
 const initGlobalData = async () => {
   if (isGlobalDataLoaded) return;
   try {
-    fetch('https://api.binance.com/api/v3/exchangeInfo').then(res=>res.json()).then(data=>{
+    safeFetch('https://api.binance.com/api/v3/exchangeInfo').then(res=>res.json()).then(data=>{
       if(data && data.symbols) {
         data.symbols.forEach(s => {
           if(s.quoteAsset === 'USDT' && s.status === 'TRADING') {
@@ -142,21 +186,35 @@ const initGlobalData = async () => {
 };
 
 const safeFetch = async (url, retries = 3) => {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const res = await fetch(url);
-      if (res.status === 429 || res.status === 418) {
-        const retryAfter = res.headers.get('Retry-After') || 3;
-        await new Promise(resolve => setTimeout(resolve, retryAfter * 1000));
-        continue;
+  const mirrors = _getBinanceMirrors(url);
+  // For Binance URLs: build a candidate list of all mirror equivalents; for others: just the URL
+  const candidates = mirrors ? mirrors.map(m => _swapUrlBase(url, m)) : [url];
+
+  for (let u = 0; u < candidates.length; u++) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const res = await fetch(candidates[u]);
+        if (res.status === 429 || res.status === 418) {
+          const retryAfter = res.headers.get('Retry-After') || 3;
+          await new Promise(r => setTimeout(r, retryAfter * 1000));
+          continue;
+        }
+        if (res.status === 451) break; // geo-blocked, try the next mirror
+        if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+        return res;
+      } catch (e) {
+        if (i < retries - 1) await new Promise(r => setTimeout(r, 1000));
       }
-      if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-      return res;
-    } catch (e) {
-      if (i === retries - 1) throw e;
-      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
+
+  if (mirrors) {
+    isBinanceBlocked = true;
+    window.dispatchEvent(new CustomEvent('binance-blocked'));
+    console.warn('[Binance] 所有节点均不可访问（451 地区封锁或网络故障），已切换至纯 HL 模式。');
+    console.warn('[Binance] 如需访问币安数据，请在 .env 中配置 VITE_BINANCE_PROXY_BASE。');
+  }
+  throw new Error(mirrors ? 'BINANCE_BLOCKED' : `Fetch failed: ${url}`);
 };
 
 const hlFetchKlines = async (coin, interval, limit) => {
@@ -279,6 +337,14 @@ export default function App() {
   const [showOnlyStar, setShowOnlyStar] = useState(false);
   const sentinelRunningRef = useRef(false);
 
+  const [binanceBlocked, setBinanceBlocked] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setBinanceBlocked(true);
+    window.addEventListener('binance-blocked', handler);
+    return () => window.removeEventListener('binance-blocked', handler);
+  }, []);
+
   const tooltipTimeoutRef = useRef(null);
 
   const handleMouseEnterTooltip = useCallback((type, res, e) => {
@@ -301,7 +367,7 @@ export default function App() {
 
   useEffect(() => {
     initGlobalData(); 
-    fetch('https://ipapi.co/json/')
+    fetch(import.meta.env.DEV ? '/ipapi/json/' : 'https://ipapi.co/json/')
       .then(res => res.json())
       .then(data => {
         if (data.region) setUserRegion(data.region);
@@ -2235,8 +2301,8 @@ export default function App() {
     const connectWS = () => {
       if (isLiveMode && results.length > 0) {
         try {
-          // 1. 币安宏观心跳流 (miniTicker)
-          ws = new WebSocket('wss://stream.binance.com:9443/ws/!miniTicker@arr');
+          // 1. 币安宏观心跳流 (miniTicker) — 自动轮询 stream 镜像节点
+          ws = new WebSocket(`${BINANCE_STREAM_MIRRORS[_binanceStreamMirrorIdx]}/ws/!miniTicker@arr`);
           ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
             const priceMap = {};
@@ -2247,7 +2313,10 @@ export default function App() {
             });
             if (Object.keys(priceMap).length > 0) setLivePrices(prev => ({ ...prev, ...priceMap }));
           };
-          ws.onerror = () => console.warn('[星辰哨兵] 宏观行情心跳阻断...');
+          ws.onerror = () => {
+            console.warn('[星辰哨兵] 宏观行情心跳阻断，尝试下一个 stream 节点...');
+            _binanceStreamMirrorIdx = (_binanceStreamMirrorIdx + 1) % BINANCE_STREAM_MIRRORS.length;
+          };
           ws.onclose = () => {
             if (isMounted && isLiveMode) { clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connectWS, 3000); }
           };
@@ -2255,7 +2324,7 @@ export default function App() {
           // 2. 币安底层订单流 (动态 Payload 模式防溢出断连)
           const binanceCoins = coins.filter(c => !c.startsWith('HL:') && c !== 'CCI');
           if (binanceCoins.length > 0) {
-             aggWs = new WebSocket('wss://stream.binance.com:9443/ws');
+             aggWs = new WebSocket(`${BINANCE_STREAM_MIRRORS[_binanceStreamMirrorIdx]}/ws`);
              aggWs.onopen = () => {
                 const params = binanceCoins.map(c => `${c.toLowerCase()}@aggTrade`);
                 aggWs.send(JSON.stringify({ method: 'SUBSCRIBE', params: params, id: 1 }));
@@ -2485,6 +2554,18 @@ export default function App() {
         ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.5); border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.8); }
       `}</style>
+
+      {/* --- ⚠️ 币安节点封锁提示横幅 --- */}
+      {binanceBlocked && (
+        <div className="fixed top-0 left-0 right-0 z-[500] bg-yellow-900/90 backdrop-blur border-b border-yellow-600/50 px-4 py-2 flex items-center justify-between gap-4 text-sm">
+          <span className="text-yellow-300 flex items-center gap-2">
+            <span>⚠️</span>
+            <span>币安节点不可访问（HTTP 451 地区封锁），已切换至纯 Hyperliquid 模式。</span>
+            <span className="text-yellow-500">如需币安数据，请在 <code className="bg-yellow-950/60 px-1 rounded font-mono">.env</code> 中配置 <code className="bg-yellow-950/60 px-1 rounded font-mono">VITE_BINANCE_PROXY_BASE</code>。</span>
+          </span>
+          <button onClick={() => setBinanceBlocked(false)} className="text-yellow-400 hover:text-yellow-200 text-lg leading-none flex-shrink-0">✕</button>
+        </div>
+      )}
 
       {/* --- 🌟 浮动关于侧边栏 --- */}
       <div className="fixed right-0 top-1/2 -translate-y-1/2 z-[400] flex items-center group">
