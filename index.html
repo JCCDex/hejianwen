@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -43,6 +43,18 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Apply stored language/RTL direction before React mounts to avoid flash -->
+    <script>
+      (function() {
+        try {
+          var lang = localStorage.getItem('i18nLang');
+          if (lang) {
+            document.documentElement.lang = lang;
+            document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+          }
+        } catch(e) {}
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

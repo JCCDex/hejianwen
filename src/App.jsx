@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import LanguageSwitcher from './components/LanguageSwitcher.jsx';
 import Ably from 'ably';
 import { createChart, CrosshairMode, LineStyle } from 'lightweight-charts';
 import html2canvas from 'html2canvas';
@@ -251,6 +253,14 @@ const fetchBenchmark = async (symbol, interval, limit) => {
 // 🚀 Main Application Component
 // ==========================================
 export default function App() {
+  const { t, i18n } = useTranslation();
+
+  // Apply RTL direction for Arabic on mount and language change
+  useEffect(() => {
+    document.documentElement.dir = i18n.language === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.lang = i18n.language;
+  }, [i18n.language]);
+
   const [coins, setCoins] = useState(() => {
     try {
       const savedCoins = localStorage.getItem('star_crypto_coins');
@@ -465,7 +475,7 @@ export default function App() {
     try { localStorage.setItem('star_crypto_coins', JSON.stringify(finalCoins)); } catch (e) {}
   };
 
-  const analyzeKlines = useCallback((symbol, klines, benchmarkKlines, klines15m, depth, fundingRate, openInterest, envData, interval, direction = 'long', category = 'crypto', isBenchmark = false, isSentinelExtreme = false) => {
+  const analyzeKlines = useCallback((symbol, klines, benchmarkKlines, klines15m, depth, fundingRate, openInterest, envData, interval, direction = 'long', category = 'crypto', isBenchmark = false, isSentinelExtreme = false, batchMode = false) => {
     if (!klines || klines.length < 150) return null;
 
     const tdData = calculateQuantTD(klines, interval, null);
@@ -909,7 +919,9 @@ export default function App() {
 
     const stepVolatility = smoothedATR / currentPrice; 
     // [修复 3] 移除 drift 二次叠加，因为 historicalReturns 抽样已天然包含真实动量漂移
-    const mcResults = runMonteCarlo(entryForRRR, targetPrice, stopLoss, historicalReturns, stepVolatility, 2000, mcSteps, direction, 0, volScale);
+    // 批量扫描模式减少模拟次数以提升整体吞吐；单币详情保持 2000 次高精度
+    const mcSims = batchMode ? 500 : 2000;
+    const mcResults = runMonteCarlo(entryForRRR, targetPrice, stopLoss, historicalReturns, stepVolatility, mcSims, mcSteps, direction, 0, volScale);
     const takerBuyRatio = takerBuys.slice(-10).reduce((a, b) => a + b, 0) / (volumes.slice(-10).reduce((a, b) => a + b, 0) || 1);
 
     const recentTakerVol = takerBuys.slice(-3).reduce((a, b) => a + b, 0);
@@ -1690,6 +1702,7 @@ export default function App() {
                 }
 
                 if (tags.length === 0) tags.push(`[💨无大周期共振(短线)]`);
+                // （已移除 300ms 人为限速，sentinel 顺序扫描不需要节流）
 
                 // 🌟 V2 严苛的多空同向共振引擎 (Strict Resonance Engine)
                 let isStar = false;
@@ -1731,7 +1744,6 @@ export default function App() {
                     return [{ id: Date.now() + Math.random(), timestamp: Date.now(), symbol, price: analysis15m.currentPrice, type: targetDir, score: analysis15m.score, title, desc, isHL, tags, isStar }, ...prev].slice(0, 100);
                 });
             }
-            await new Promise(r => setTimeout(r, 300));
         }
     } catch(e) {}
   }, [analyzeKlines]);
@@ -1804,96 +1816,99 @@ export default function App() {
 
     const evalDirection = tradeDirection === 'neutral' ? 'neutral' : tradeDirection;
 
-    for (let i = 0; i < coins.length; i++) {
-      if (currentScanId !== scanIdRef.current) return; 
-
-      const symbol = coins[i]; 
-      let klines = null, k15m = null, depth = null, fundingRate = 0.0001, openInterest = 0;
-      let isHyperliquidNode = false;
-      
+    // ── 并行拉取所有 coin 数据（原串行改并发，主要瓶颈，约 10x 加速）──────────────
+    const _fetchOneCoin = async (symbol) => {
       const isDirectHL = symbol.startsWith('HL:');
       const searchSymbol = isDirectHL ? symbol.replace('HL:', '') : symbol;
-      let actualSymbolUsed = searchSymbol; 
-
+      let klines = null, k15m = null, depth = null, fundingRate = 0.0001, openInterest = 0;
+      let isHyperliquidNode = false;
+      let actualSymbolUsed = searchSymbol;
       try {
         let klinesRes = null;
         if (!isDirectHL) {
-          klinesRes = await safeFetch(`https://api.binance.com/api/v3/klines?symbol=${searchSymbol}&interval=${klineInterval}&limit=200`).catch(()=>null);
+          klinesRes = await safeFetch(`https://api.binance.com/api/v3/klines?symbol=${searchSymbol}&interval=${klineInterval}&limit=200`).catch(() => null);
         }
-        
         if (klinesRes && klinesRes.ok) {
           klines = await klinesRes.json();
           actualSymbolUsed = searchSymbol;
           const [k15mRes, depthRes, fapiRes, oiRes] = await Promise.all([
-            safeFetch(`https://api.binance.com/api/v3/klines?symbol=${searchSymbol}&interval=15m&limit=50`).catch(()=>null),
-            safeFetch(`https://api.binance.com/api/v3/depth?symbol=${searchSymbol}&limit=100`).catch(()=>null),
+            safeFetch(`https://api.binance.com/api/v3/klines?symbol=${searchSymbol}&interval=15m&limit=50`).catch(() => null),
+            safeFetch(`https://api.binance.com/api/v3/depth?symbol=${searchSymbol}&limit=100`).catch(() => null),
             safeFetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${searchSymbol}`).catch(() => null),
-            safeFetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${searchSymbol}`).catch(() => null)
+            safeFetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${searchSymbol}`).catch(() => null),
           ]);
-
           if (k15mRes && k15mRes.ok) k15m = await k15mRes.json();
           if (depthRes && depthRes.ok) depth = await depthRes.json();
           if (fapiRes && fapiRes.ok) fundingRate = parseFloat((await fapiRes.json()).lastFundingRate || 0);
           if (oiRes && oiRes.ok) openInterest = parseFloat((await oiRes.json()).openInterest || 0);
         } else {
           isHyperliquidNode = true;
-          
           let hlTarget = searchSymbol;
-          const stripped = searchSymbol.replace(/USDT|USDC/g, ''); 
-          
+          const stripped = searchSymbol.replace(/USDT|USDC/g, '');
           if (hlDictionary[searchSymbol]) hlTarget = hlDictionary[searchSymbol];
-          else if (hlDictionary[stripped]) hlTarget = hlDictionary[stripped]; 
-          else hlTarget = isDirectHL ? searchSymbol : stripped; 
-
+          else if (hlDictionary[stripped]) hlTarget = hlDictionary[stripped];
+          else hlTarget = isDirectHL ? searchSymbol : stripped;
           klines = await hlFetchKlines(hlTarget, klineInterval, 200);
-          
           if (!klines && !hlTarget.includes(':')) {
-              const darkTarget = `xyz:${hlTarget}`; 
-              klines = await hlFetchKlines(darkTarget, klineInterval, 200);
-              if (klines) hlTarget = darkTarget; 
+            const darkTarget = `xyz:${hlTarget}`;
+            klines = await hlFetchKlines(darkTarget, klineInterval, 200);
+            if (klines) hlTarget = darkTarget;
           }
-
-          if (klines && klines.length >= 100) { 
-            actualSymbolUsed = hlTarget; 
-            k15m = await hlFetchKlines(hlTarget, '15m', 50).catch(()=>null);
+          if (klines && klines.length >= 100) {
+            actualSymbolUsed = hlTarget;
+            k15m = await hlFetchKlines(hlTarget, '15m', 50).catch(() => null);
             const l2Res = await fetch('https://api.hyperliquid.xyz/info', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: "l2Book", coin: hlTarget })
-            }).catch(()=>null);
-            
+              body: JSON.stringify({ type: 'l2Book', coin: hlTarget }),
+            }).catch(() => null);
             if (l2Res && l2Res.ok) {
               const l2 = await l2Res.json();
               if (l2 && l2.levels && l2.levels.length >= 2) {
-                 depth = { bids: l2.levels[0].map(b => [b.px, b.sz]), asks: l2.levels[1].map(a => [a.px, a.sz]) };
+                depth = { bids: l2.levels[0].map(b => [b.px, b.sz]), asks: l2.levels[1].map(a => [a.px, a.sz]) };
               }
             }
           }
         }
+      } catch (_) {}
+      return { symbol, klines, k15m, depth, fundingRate, openInterest, isHyperliquidNode, actualSymbolUsed };
+    };
 
-        if (!klines || klines.length < 100) {
-           setProgress(((i + 1) / coins.length) * 100);
-           continue; 
-        }
-        
-        allKlinesForCCI.push({ symbol: actualSymbolUsed, rawData: klines }); 
-        
-        const category = getAssetCategory(actualSymbolUsed);
-        const isBenchmark = Object.values(benchmarkSymbols).includes(actualSymbolUsed) || actualSymbolUsed === 'BTCUSDT';
-        const bmkKlines = intKlines[category] || intKlines['crypto'];
-        const bmkEnv = envs[category] || currentEnv;
+    // 所有 coin 并发拉取，每完成一个更新进度条（0-65%）
+    let _fetchDone = 0;
+    const fetchedCoins = await Promise.all(
+      coins.map(sym =>
+        _fetchOneCoin(sym).then(data => {
+          _fetchDone++;
+          setProgress((_fetchDone / coins.length) * 65);
+          return data;
+        })
+      )
+    );
 
-        const analysis = analyzeKlines(symbol, klines, bmkKlines, k15m, depth, fundingRate, openInterest, bmkEnv, klineInterval, evalDirection, category, isBenchmark);
-        if (analysis) {
-          analysis.isHL = isHyperliquidNode; 
-          analysis.actualSymbol = actualSymbolUsed; 
-          scannedData.push(analysis);
-          newChartCache[symbol] = analysis.chartData;
-        }
-      } catch (err) {}
-      
-      if (currentScanId !== scanIdRef.current) return; 
-      setProgress(((i + 1) / coins.length) * 100);
-      await new Promise(res => setTimeout(res, 200)); 
+    if (currentScanId !== scanIdRef.current) return;
+
+    // 顺序计算（CPU 密集，单线程执行，65-100%）
+    for (let i = 0; i < fetchedCoins.length; i++) {
+      if (currentScanId !== scanIdRef.current) return;
+      const { symbol, klines, k15m, depth, fundingRate, openInterest, isHyperliquidNode, actualSymbolUsed } = fetchedCoins[i];
+      if (!klines || klines.length < 100) continue;
+
+      allKlinesForCCI.push({ symbol: actualSymbolUsed, rawData: klines });
+
+      const category = getAssetCategory(actualSymbolUsed);
+      const isBenchmark = Object.values(benchmarkSymbols).includes(actualSymbolUsed) || actualSymbolUsed === 'BTCUSDT';
+      const bmkKlines = intKlines[category] || intKlines['crypto'];
+      const bmkEnv = envs[category] || currentEnv;
+
+      // batchMode=true：Monte Carlo 采用 500 次快速模拟
+      const analysis = analyzeKlines(symbol, klines, bmkKlines, k15m, depth, fundingRate, openInterest, bmkEnv, klineInterval, evalDirection, category, isBenchmark, false, true);
+      if (analysis) {
+        analysis.isHL = isHyperliquidNode;
+        analysis.actualSymbol = actualSymbolUsed;
+        scannedData.push(analysis);
+        newChartCache[symbol] = analysis.chartData;
+      }
+      setProgress(65 + ((i + 1) / fetchedCoins.length) * 35);
     }
 
     if (allKlinesForCCI.length > 0 && currentScanId === scanIdRef.current) {
@@ -1941,7 +1956,7 @@ export default function App() {
     setIsRadarScanning(true);
     setRadarResults([]);
     setRadarProgress(0);
-    setRadarStatus('初始化多锚点雷达矩阵，同步全球大盘环境...');
+    setRadarStatus(t('radar.initializing'));
 
     try {
       const benchmarkSymbols = { crypto: 'BTCUSDT', equity: 'NDX', commodity: 'GOLD', forex: 'EURUSD' };
@@ -1959,7 +1974,7 @@ export default function App() {
         intKlines[cat] = kInt;
       }));
 
-      setRadarStatus('拉取全网 24h 资金流动性榜单...');
+      setRadarStatus(t('radar.fetchTicker'));
       const tickRes = await safeFetch('https://api.binance.com/api/v3/ticker/24hr');
       if (!tickRes || !tickRes.ok) throw new Error('Ticker failed');
       const tickers = await tickRes.json();
@@ -1975,53 +1990,56 @@ export default function App() {
       const goldenCoins = [];
       const evalDirection = tradeDirection === 'neutral' ? 'long' : tradeDirection;
 
-      for (let i = 0; i < topCoins.length; i++) {
-        if (!isRadarOpenRef.current) break; 
+      // 雷达扫描：分批并发（每批 10 个），大幅缩短 200 币扫描时间
+      const RADAR_BATCH = 10;
+      for (let i = 0; i < topCoins.length; i += RADAR_BATCH) {
+        if (!isRadarOpenRef.current) break;
 
-        const symbol = topCoins[i];
-        setRadarStatus(`[${i + 1}/200] 侦测: ${symbol} ...`);
-        setRadarProgress(((i + 1) / 200) * 100);
+        const batch = topCoins.slice(i, i + RADAR_BATCH);
+        setRadarStatus(t('radar.scanning', { from: i + 1, to: Math.min(i + RADAR_BATCH, topCoins.length) }));
 
-        try {
-          const klRes = await safeFetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${klineInterval}&limit=200`);
-          if (!klRes || !klRes.ok) continue;
-          const klines = await klRes.json();
-          if (klines.length < 144) continue;
+        await Promise.all(batch.map(async (symbol) => {
+          try {
+            const klRes = await safeFetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${klineInterval}&limit=200`);
+            if (!klRes || !klRes.ok) return;
+            const klines = await klRes.json();
+            if (klines.length < 144) return;
 
-          const closes = klines.map(k => parseFloat(k[4]));
-          const price = closes[closes.length - 1];
-          const alma144 = calculateALMA(closes, 144).pop(); 
-          const ema50 = calculateEMA(closes, 50).pop();
+            const closes = klines.map(k => parseFloat(k[4]));
+            const price = closes[closes.length - 1];
+            const alma144 = calculateALMA(closes, 144).pop();
+            const ema50 = calculateEMA(closes, 50).pop();
+            if (price < alma144 && price < ema50) return; // 早期过滤，跳过弱势币
 
-          if (price < alma144 && price < ema50) continue; 
+            const [k15mRes, depthRes, fapiRes, oiRes] = await Promise.all([
+              safeFetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=50`),
+              safeFetch(`https://api.binance.com/api/v3/depth?symbol=${symbol}&limit=100`),
+              safeFetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`).catch(() => null),
+              safeFetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${symbol}`).catch(() => null),
+            ]);
 
-          const [k15mRes, depthRes, fapiRes, oiRes] = await Promise.all([
-            safeFetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=15m&limit=50`),
-            safeFetch(`https://api.binance.com/api/v3/depth?symbol=${symbol}&limit=100`),
-            safeFetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`).catch(() => null),
-            safeFetch(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${symbol}`).catch(() => null)
-          ]);
+            const k15m = (k15mRes && k15mRes.ok) ? await k15mRes.json() : null;
+            const depth = (depthRes && depthRes.ok) ? await depthRes.json() : null;
+            let fr = 0.0001, oi = 0;
+            if (fapiRes && fapiRes.ok) fr = parseFloat((await fapiRes.json()).lastFundingRate || 0);
+            if (oiRes && oiRes.ok) oi = parseFloat((await oiRes.json()).openInterest || 0);
 
-          const k15m = (k15mRes && k15mRes.ok) ? await k15mRes.json() : null;
-          const depth = (depthRes && depthRes.ok) ? await depthRes.json() : null;
-          let fr = 0.0001, oi = 0;
-          if (fapiRes && fapiRes.ok) fr = parseFloat((await fapiRes.json()).lastFundingRate || 0);
-          if (oiRes && oiRes.ok) oi = parseFloat((await oiRes.json()).openInterest || 0);
-          
-          const category = getAssetCategory(symbol);
-          const isBenchmark = Object.values(benchmarkSymbols).includes(symbol) || symbol === 'BTCUSDT';
-          const bmkKlines = intKlines[category] || intKlines['crypto'];
-          const bmkEnv = envs[category] || envs['crypto'];
+            const category = getAssetCategory(symbol);
+            const isBenchmark = Object.values(benchmarkSymbols).includes(symbol) || symbol === 'BTCUSDT';
+            const bmkKlines = intKlines[category] || intKlines['crypto'];
+            const bmkEnv = envs[category] || envs['crypto'];
 
-          const analysis = analyzeKlines(symbol, klines, bmkKlines, k15m, depth, fr, oi, bmkEnv, klineInterval, evalDirection, category, isBenchmark);
+            // batchMode=true：快速模拟
+            const analysis = analyzeKlines(symbol, klines, bmkKlines, k15m, depth, fr, oi, bmkEnv, klineInterval, evalDirection, category, isBenchmark, false, true);
+            if (analysis && analysis.score >= 65) {
+              analysis.actualSymbol = symbol;
+              goldenCoins.push(analysis);
+              setRadarResults([...goldenCoins].sort((a, b) => b.score - a.score));
+            }
+          } catch (_) {}
+        }));
 
-          if (analysis && analysis.score >= 65) {
-            analysis.actualSymbol = symbol; 
-            goldenCoins.push(analysis);
-            setRadarResults([...goldenCoins].sort((a, b) => b.score - a.score));
-          }
-        } catch (err) {}
-        await new Promise(res => setTimeout(res, 300)); 
+        setRadarProgress(Math.min(((i + RADAR_BATCH) / topCoins.length) * 100, 100));
       }
 
       if (goldenCoins.length > 0) {
@@ -2032,9 +2050,9 @@ export default function App() {
         setRadarResults([...goldenCoins].sort((a, b) => b.score - a.score));
       }
 
-      setRadarStatus(isRadarOpenRef.current ? `雷达扫描完成！捕获 ${goldenCoins.length} 个高潜标的。` : '雷达扫描已中止。');
+      setRadarStatus(isRadarOpenRef.current ? t('radar.complete', { count: goldenCoins.length }) : t('radar.aborted'));
     } catch (err) {
-      setRadarStatus('网络节点连接异常，或触发币安限流。');
+      setRadarStatus(t('radar.networkError'));
     } finally {
       setIsRadarScanning(false);
     }
@@ -2464,8 +2482,14 @@ export default function App() {
 
   const getZhName = (actualSymbol) => {
     if (!actualSymbol) return '';
-    const pure = actualSymbol.replace('HL:', '').replace(/\/USDC|USDT|USDC/gi, '').split(':').pop();
-    return ZH_NAMES[pure.toUpperCase()] || '';
+    // Normalize: strip exchange prefix, quote currency, sub-ticker
+    let pure = actualSymbol.replace('HL:', '').replace(/\/USDC|USDT|USDC/gi, '').split(':').pop().toUpperCase();
+    // Normalize S&P500 → SP500 for i18n key safety
+    const i18nKey = pure.replace(/[&]/g, '');
+    const translationKey = `assets.${i18nKey}`;
+    if (i18n.exists(translationKey)) return t(translationKey);
+    // Fall back to ZH_NAMES (covers any keys not yet in i18n)
+    return ZH_NAMES[pure] || ZH_NAMES[i18nKey] || '';
   };
 
   const handleSearchChange = (e) => {
@@ -2560,8 +2584,8 @@ export default function App() {
         <div className="fixed top-0 left-0 right-0 z-[500] bg-yellow-900/90 backdrop-blur border-b border-yellow-600/50 px-4 py-2 flex items-center justify-between gap-4 text-sm">
           <span className="text-yellow-300 flex items-center gap-2">
             <span>⚠️</span>
-            <span>币安节点不可访问（HTTP 451 地区封锁），已切换至纯 Hyperliquid 模式。</span>
-            <span className="text-yellow-500">如需币安数据，请在 <code className="bg-yellow-950/60 px-1 rounded font-mono">.env</code> 中配置 <code className="bg-yellow-950/60 px-1 rounded font-mono">VITE_BINANCE_PROXY_BASE</code>。</span>
+            <span>{t('binanceBlocked')}</span>
+            <span className="text-yellow-500"><code className="bg-yellow-950/60 px-1 rounded font-mono">.env</code> {t('binanceBlockedProxy')} <code className="bg-yellow-950/60 px-1 rounded font-mono">{t('binanceBlockedVar')}</code>。</span>
           </span>
           <button onClick={() => setBinanceBlocked(false)} className="text-yellow-400 hover:text-yellow-200 text-lg leading-none flex-shrink-0">✕</button>
         </div>
@@ -2597,13 +2621,13 @@ export default function App() {
       <form onSubmit={handleSendDanmaku} className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-2 bg-gray-900/90 backdrop-blur-md border border-gray-700 p-1.5 px-2 rounded-full shadow-[0_0_30px_rgba(0,0,0,0.5)] transition-all hover:border-indigo-500/50">
         <button type="button" onClick={() => setIsAlertPanelOpen(true)} className="relative px-3 py-1.5 flex items-center gap-1.5 text-xs font-bold text-gray-300 hover:text-white bg-gray-800 border border-gray-700 hover:border-yellow-500/50 hover:bg-yellow-600/30 rounded-full transition-all">
           <BellRing className={`w-4 h-4 ${isSentinelRunning ? 'text-yellow-400 animate-pulse' : 'text-gray-500'}`} />
-          <span className="hidden sm:inline">情报局</span>
+          <span className="hidden sm:inline">{t('buttons.intelligence')}</span>
           {alerts.length > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border border-gray-900"></span>}
         </button>
         <button type="button" onClick={() => setIsHistoryOpen(true)} className="px-3 py-1.5 flex items-center gap-1.5 text-xs font-bold text-gray-300 hover:text-white bg-gray-800 border border-gray-700 hover:border-indigo-500/50 hover:bg-indigo-600/30 rounded-full transition-all">
-          <MessageSquare className="w-4 h-4 text-indigo-400" /><span className="hidden sm:inline">大厅</span>
+          <MessageSquare className="w-4 h-4 text-indigo-400" /><span className="hidden sm:inline">{t('buttons.chatHall')}</span>
         </button>
-        <input type="text" placeholder={ABLY_API_KEY ? "发送全网实时弹幕..." : "(本地) 填 Ably Key"} value={danmakuInput} onChange={(e) => setDanmakuInput(e.target.value)} maxLength={40} className="bg-transparent text-xs sm:text-sm text-gray-200 px-1 sm:px-2 py-1.5 w-32 sm:w-48 md:w-64 focus:outline-none placeholder-gray-500" />
+        <input type="text" placeholder={ABLY_API_KEY ? t('chat.placeholder') : t('chat.placeholderNoKey')} value={danmakuInput} onChange={(e) => setDanmakuInput(e.target.value)} maxLength={40} className="bg-transparent text-xs sm:text-sm text-gray-200 px-1 sm:px-2 py-1.5 w-32 sm:w-48 md:w-64 focus:outline-none placeholder-gray-500" />
         <button type="submit" className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-full text-xs font-bold transition-colors flex items-center gap-1.5"><Send className="w-4 h-4" />Biu</button>
       </form>
 
@@ -2612,11 +2636,11 @@ export default function App() {
         <div className="fixed inset-y-0 right-0 w-80 sm:w-96 bg-gray-950/95 backdrop-blur-2xl border-l border-gray-800 z-[260] flex flex-col shadow-2xl transform transition-transform animate-in slide-in-from-right duration-300">
           <div className="p-4 pt-16 border-b border-gray-800 flex justify-between items-center bg-gray-900/50">
             <div>
-              <h3 className="font-bold flex items-center gap-2 text-white"><AlertTriangle className="w-5 h-5 text-yellow-400" /> 24h 异动情报局</h3>
-              <p className="text-[10px] text-gray-500 mt-1">静默巡航哨兵自动捕捉的极端建仓/逃顶标的</p>
+              <h3 className="font-bold flex items-center gap-2 text-white"><AlertTriangle className="w-5 h-5 text-yellow-400" /> {t('alert.panelTitle')}</h3>
+              <p className="text-[10px] text-gray-500 mt-1">{t('alert.panelDesc')}</p>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => setShowOnlyStar(!showOnlyStar)} title="只看多周期共振星标" className={`p-1.5 rounded-lg border transition-colors flex items-center justify-center ${showOnlyStar ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50 shadow-[0_0_10px_rgba(234,179,8,0.3)]' : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'}`}>
+              <button onClick={() => setShowOnlyStar(!showOnlyStar)} title={t('buttons.starOnly')} className={`p-1.5 rounded-lg border transition-colors flex items-center justify-center ${showOnlyStar ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50 shadow-[0_0_10px_rgba(234,179,8,0.3)]' : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300'}`}>
                 <Sparkles className="w-4 h-4" />
               </button>
               <button onClick={() => setIsAlertPanelOpen(false)} className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-gray-800 transition-colors"><X className="w-5 h-5" /></button>
@@ -2626,12 +2650,12 @@ export default function App() {
             {alerts.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-600 text-sm space-y-4">
                 <Bell className="w-12 h-12 opacity-20" />
-                <p>{isSentinelRunning ? '哨兵巡航中，暂未发现极端异动。' : '哨兵已休眠，请开启静默巡航功能。'}</p>
+                <p>{isSentinelRunning ? t('alert.emptyRunning') : t('alert.emptySleeping')}</p>
               </div>
             ) : alerts.filter(a => showOnlyStar ? a.isStar : true).length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-600 text-sm space-y-4">
                 <Sparkles className="w-12 h-12 opacity-20" />
-                <p>当前暂无完美共振的星标信号。</p>
+                <p>{t('alert.emptyNoStar')}</p>
               </div>
             ) : (
               alerts.filter(a => showOnlyStar ? a.isStar : true).map((alert) => (
@@ -2639,9 +2663,9 @@ export default function App() {
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] font-mono text-gray-500">{new Date(alert.timestamp).toLocaleTimeString('zh-CN')}</span>
                     <div className="flex items-center gap-1.5">
-                      {alert.isStar && <span className="text-[9px] px-1.5 py-0.5 rounded border border-yellow-500/50 text-yellow-400 bg-yellow-900/30 animate-pulse flex items-center gap-1"><Sparkles className="w-2.5 h-2.5"/> 完美共振</span>}
+                      {alert.isStar && <span className="text-[9px] px-1.5 py-0.5 rounded border border-yellow-500/50 text-yellow-400 bg-yellow-900/30 animate-pulse flex items-center gap-1"><Sparkles className="w-2.5 h-2.5"/> {t('alert.perfectResonance')}</span>}
                       <span className={`text-[10px] px-2 py-0.5 rounded border ${alert.type === 'long' ? 'border-green-500/30 text-green-400 bg-green-900/20' : 'border-red-500/30 text-red-400 bg-red-900/20'}`}>
-                        {alert.type === 'long' ? '💎 建仓' : '🚨 逃顶'}
+                        {alert.type === 'long' ? t('alert.openPosition') : t('alert.exitTop')}
                       </span>
                     </div>
                   </div>
@@ -2673,8 +2697,8 @@ export default function App() {
                   <div className="text-gray-400 text-[11px] leading-relaxed mb-3">{alert.desc.replace(/\[.*?\]/g, '').trim()}</div>
                   
                   <div className="flex justify-between items-center text-[10px] border-t border-gray-800/50 pt-2">
-                    <span className="font-mono text-gray-500">现价: ${alert.price.toPrecision(5)}</span>
-                    <span className="text-gray-500">V12 得分: <strong className={alert.score >= 70 ? 'text-cyan-400' : 'text-indigo-400'}>{alert.score}</strong></span>
+                    <span className="font-mono text-gray-500">{t('alert.currentPrice')}: ${alert.price.toPrecision(5)}</span>
+                    <span className="text-gray-500">{t('alert.v12Score')}: <strong className={alert.score >= 70 ? 'text-cyan-400' : 'text-indigo-400'}>{alert.score}</strong></span>
                   </div>
                 </div>
               ))
@@ -2695,13 +2719,13 @@ export default function App() {
                   <Bitcoin className="w-5 h-5 md:w-6 md:h-6 text-cyan-400" />
                 </div>
               </div>
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500">星辰妙漫炒币器</span>
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-500">{t('app.title')}</span>
             </h1>
             
             <div className="flex bg-gray-900 border border-gray-800 rounded-lg p-0.5 ml-1 md:ml-2 shadow-inner">
-              <button onClick={() => handleDirectionClick('long')} className={`px-2.5 py-1 rounded-md text-[10px] md:text-xs font-bold transition-all ${tradeDirection === 'long' ? 'bg-green-500/20 text-green-400 shadow-[0_0_10px_rgba(34,197,94,0.2)]' : 'text-gray-500 hover:text-gray-300'}`}>📈 做多</button>
-              <button onClick={() => handleDirectionClick('neutral')} className={`px-2.5 py-1 rounded-md text-[10px] md:text-xs font-bold transition-all ${tradeDirection === 'neutral' ? 'bg-indigo-500/20 text-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.2)]' : 'text-gray-500 hover:text-gray-300'}`}>🛡️ 观望</button>
-              <button onClick={() => handleDirectionClick('short')} className={`px-2.5 py-1 rounded-md text-[10px] md:text-xs font-bold transition-all ${tradeDirection === 'short' ? 'bg-red-500/20 text-red-400 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'text-gray-500 hover:text-gray-300'}`}>📉 做空</button>
+              <button onClick={() => handleDirectionClick('long')} className={`px-2.5 py-1 rounded-md text-[10px] md:text-xs font-bold transition-all ${tradeDirection === 'long' ? 'bg-green-500/20 text-green-400 shadow-[0_0_10px_rgba(34,197,94,0.2)]' : 'text-gray-500 hover:text-gray-300'}`}>{t('app.long')}</button>
+              <button onClick={() => handleDirectionClick('neutral')} className={`px-2.5 py-1 rounded-md text-[10px] md:text-xs font-bold transition-all ${tradeDirection === 'neutral' ? 'bg-indigo-500/20 text-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.2)]' : 'text-gray-500 hover:text-gray-300'}`}>{t('app.neutral')}</button>
+              <button onClick={() => handleDirectionClick('short')} className={`px-2.5 py-1 rounded-md text-[10px] md:text-xs font-bold transition-all ${tradeDirection === 'short' ? 'bg-red-500/20 text-red-400 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'text-gray-500 hover:text-gray-300'}`}>{t('app.short')}</button>
             </div>
             {marketEnv && (
               <span className={`flex items-center gap-1 px-2 py-1 rounded-full text-[9px] md:text-[10px] font-bold border ${marketEnv.color} border-current/30 bg-current/10 hidden xl:flex`}>
@@ -2720,7 +2744,7 @@ export default function App() {
              <div className="flex-1 overflow-hidden relative flex items-center h-full ml-[34px]">
                {alerts.length === 0 ? (
                   <div className="text-[10px] text-gray-600 font-mono px-3 flex items-center gap-1.5 animate-pulse">
-                    <Activity className="w-3 h-3 opacity-50"/> {isSentinelRunning ? '潜行侦测异动中...' : '哨兵休眠'}
+                    <Activity className="w-3 h-3 opacity-50"/> {isSentinelRunning ? t('ticker.detecting') : t('ticker.sleeping')}
                   </div>
                ) : (
                   <div className="flex w-max animate-ticker hover:[animation-play-state:paused] items-center">
@@ -2751,10 +2775,11 @@ export default function App() {
 
           {/* 右侧：紧凑型控制区 */}
           <div className="flex items-center justify-between lg:justify-end gap-2 shrink-0">
+            <LanguageSwitcher />
             <div className="flex items-center gap-1.5">
               <button onClick={toggleSentinel} className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] md:text-xs font-bold border transition-all ${isSentinelRunning ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50 shadow-[0_0_10px_rgba(234,179,8,0.2)]' : 'bg-gray-900 text-gray-500 border-gray-800 hover:text-gray-300'}`}>
                 <BellRing className={`w-3 h-3 ${isSentinelRunning ? 'animate-pulse' : ''}`} />
-                <span>哨兵 {isSentinelRunning ? 'ON' : 'OFF'}</span>
+                <span>{t('app.sentinel')} {isSentinelRunning ? 'ON' : 'OFF'}</span>
               </button>
               <button onClick={() => setIsLiveMode(!isLiveMode)} className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] md:text-xs font-bold border transition-all ${isLiveMode ? 'bg-green-500/20 text-green-400 border-green-500/50 shadow-[0_0_10px_rgba(34,197,94,0.2)]' : 'bg-gray-900 text-gray-500 border-gray-800 hover:text-gray-300'}`}>
                 {isLiveMode ? <Radio className="w-3 h-3 animate-pulse" /> : <Radar className="w-3 h-3" />}
@@ -2772,7 +2797,7 @@ export default function App() {
         <div className="flex flex-col md:flex-row gap-3 md:gap-4 justify-between items-start md:items-center" ref={searchContainerRef}>
           <div className="hidden md:flex w-full md:w-auto relative">
             <form onSubmit={handleAddCoin} className="flex w-full relative z-20">
-              <input type="text" placeholder="输入代币检索全网超级索引" value={newCoin} onChange={handleSearchChange} onFocus={() => newCoin.trim() && setShowDropdown(true)} className="bg-gray-900 border border-gray-700 text-gray-100 px-4 py-2 rounded-l-lg focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 w-48 transition-all focus:w-64" />
+              <input type="text" placeholder={t('search.placeholder')} value={newCoin} onChange={handleSearchChange} onFocus={() => newCoin.trim() && setShowDropdown(true)} className="bg-gray-900 border border-gray-700 text-gray-100 px-4 py-2 rounded-l-lg focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 w-48 transition-all focus:w-64" />
               <button type="submit" className="bg-gray-800 hover:bg-gray-700 border border-l-0 border-gray-700 px-4 py-2 rounded-r-lg transition-colors flex items-center gap-2"><Search className="w-4 h-4 text-gray-400" /></button>
             </form>
             
@@ -2794,7 +2819,7 @@ export default function App() {
             {isMobileSearchOpen ? (
               <div className="flex w-full md:hidden relative animate-in slide-in-from-right-4 fade-in duration-200">
                 <form onSubmit={handleAddCoin} className="flex w-full relative z-20">
-                  <input type="text" placeholder="键入任意资产嗅探" value={newCoin} onChange={handleSearchChange} onFocus={() => newCoin.trim() && setShowDropdown(true)} autoFocus className="w-full bg-gray-900 border border-gray-700 text-gray-100 px-4 py-2 rounded-l-lg focus:outline-none focus:border-cyan-500" />
+                  <input type="text" placeholder={t('search.placeholderMobile')} value={newCoin} onChange={handleSearchChange} onFocus={() => newCoin.trim() && setShowDropdown(true)} autoFocus className="w-full bg-gray-900 border border-gray-700 text-gray-100 px-4 py-2 rounded-l-lg focus:outline-none focus:border-cyan-500" />
                   <button type="submit" className="bg-cyan-600/20 hover:bg-cyan-600/40 border-y border-gray-700 text-cyan-400 px-4 transition-colors"><Search className="w-4 h-4" /></button>
                   <button type="button" onClick={() => { setIsMobileSearchOpen(false); setShowDropdown(false); }} className="bg-gray-800 hover:bg-gray-700 border border-gray-700 px-3 rounded-r-lg text-gray-400 transition-colors"><X className="w-4 h-4" /></button>
                 </form>
@@ -2816,11 +2841,11 @@ export default function App() {
                 <button onClick={() => setIsMobileSearchOpen(true)} className="md:hidden flex-none flex items-center justify-center px-3.5 rounded-lg border border-gray-700 bg-gray-900 text-cyan-400 hover:bg-gray-800 transition-colors"><Search className="w-4 h-4" /></button>
                 <button onClick={runRadarScan} disabled={isRadarScanning} className={`flex-1 md:flex-none flex items-center justify-center gap-1.5 md:gap-2 px-2 md:px-6 py-2 md:py-2.5 rounded-lg text-xs md:text-sm font-semibold transition-all ${isRadarScanning ? 'bg-indigo-900/50 text-indigo-400 cursor-not-allowed border border-indigo-500/30' : 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/50 hover:bg-indigo-600/40 shadow-[0_0_15px_rgba(99,102,241,0.2)]'}`}>
                   <Rocket className={`w-4 h-4 md:w-5 md:h-5 shrink-0 ${isRadarScanning ? 'animate-bounce' : ''}`} />
-                  <span className="hidden sm:inline">星际雷达 (Top 200)</span><span className="sm:hidden truncate">星际雷达</span>
+                  <span className="hidden sm:inline">{t('buttons.radarScan')}</span><span className="sm:hidden truncate">{t('buttons.radarScanShort')}</span>
                 </button>
                 <button onClick={scanMarket} disabled={isScanning} className={`flex-1 md:flex-none flex items-center justify-center gap-1.5 md:gap-2 px-2 md:px-6 py-2 md:py-2.5 rounded-lg text-xs md:text-sm font-semibold transition-all ${isScanning ? 'bg-cyan-900 text-cyan-400 cursor-not-allowed' : 'bg-gradient-to-r from-gray-800 to-gray-900 border border-gray-700 hover:border-cyan-500/50 text-gray-300 hover:text-cyan-400'}`}>
                   <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 shrink-0 ${isScanning ? 'animate-spin text-cyan-400' : ''}`} />
-                  <span className="hidden sm:inline">{isScanning ? `推演中 ${Math.round(progress)}%` : '强制扫描监控阵列'}</span><span className="sm:hidden truncate">{isScanning ? `${Math.round(progress)}%` : '扫描阵列'}</span>
+                  <span className="hidden sm:inline">{isScanning ? t('buttons.scanning', { pct: Math.round(progress) }) : t('buttons.forceScan')}</span><span className="sm:hidden truncate">{isScanning ? t('buttons.scanningShort', { pct: Math.round(progress) }) : t('buttons.scanShort')}</span>
                 </button>
               </>
             )}
@@ -2845,10 +2870,10 @@ export default function App() {
             <div className="col-span-full py-24 text-center border border-indigo-500/30 rounded-2xl bg-indigo-950/10 shadow-[0_0_50px_rgba(79,70,229,0.1)] relative overflow-hidden">
                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 bg-indigo-500/20 blur-[100px] rounded-full"></div>
                <ShieldAlert className="w-16 h-16 text-indigo-400 mx-auto mb-6 relative z-10 animate-pulse" />
-               <h3 className="text-2xl font-black text-white mb-2 relative z-10">空仓保护机制已激活</h3>
+               <h3 className="text-2xl font-black text-white mb-2 relative z-10">{t('neutral.title')}</h3>
                <p className="text-indigo-300 text-sm max-w-lg mx-auto relative z-10 leading-relaxed">
-                  当前大盘环境混沌，系统已自动熔断常规趋势扫描。<br/>
-                  <span className="text-gray-400 mt-2 block">V12 引擎正在暗中为您寻觅 <strong>Beta &lt; 0.4 且得分 &ge; 75</strong> 的极度稀缺事件驱动型 Alpha...<br/>如果雷达毫无反应，说明<strong>最好的交易就是不交易。</strong></span>
+                  {t('neutral.desc1')}<br/>
+                  <span className="text-gray-400 mt-2 block">{t('neutral.desc2')}<br/><strong>{t('neutral.desc3')}</strong></span>
                </p>
             </div>
           ) : results.length > 0 ? results.map((res, idx) => {
@@ -2879,7 +2904,7 @@ export default function App() {
               <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center gap-1.5">
                 <button onClick={(e) => { e.stopPropagation(); if (!isGeneratingMicro) generateMicroPoster(res); }} className="p-1.5 bg-gray-950/80 hover:bg-cyan-900/50 text-gray-400 hover:text-cyan-400 rounded-lg border border-transparent hover:border-cyan-500/50 transition-all group/btn relative">
                   {isGeneratingMicro && microPosterData?.symbol === res.symbol ? <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" /> : <Camera className="w-4 h-4" />}
-                  <div className="absolute bottom-full right-0 mb-2 w-max px-2 py-1 bg-gray-900 text-[10px] text-gray-300 rounded border border-gray-700 opacity-0 group-hover/btn:opacity-100 pointer-events-none transition-opacity">分享雷达快照</div>
+                  <div className="absolute bottom-full right-0 mb-2 w-max px-2 py-1 bg-gray-900 text-[10px] text-gray-300 rounded border border-gray-700 opacity-0 group-hover/btn:opacity-100 pointer-events-none transition-opacity">{t('buttons.shareSnapshot')}</div>
                 </button>
                 <div className="p-1.5 bg-gray-950/80 text-gray-500 rounded-lg hidden sm:block"><Maximize2 className="w-4 h-4" /></div>
               </div>
@@ -2893,11 +2918,11 @@ export default function App() {
                     <span className={`shrink-0 ${getZhName(res.actualSymbol) ? 'text-gray-400 text-sm sm:text-base' : ''}`}>{res.actualSymbol.replace(/\/USDC|USDT|USDC/gi, '')}</span>
                     {!isCCI && <span className="text-[10px] sm:text-xs text-gray-500 font-normal shrink-0">/{res.isHL ? 'USDC' : 'USDT'}</span>}
                     
-                    {res.isHL && <span className="bg-purple-900/50 text-purple-400 border border-purple-500/50 px-1.5 py-0.5 rounded text-[10px] shrink-0 ml-1 shadow-[0_0_10px_rgba(168,85,247,0.3)]">Hyperliquid 节点</span>}
-                    {isKillZone && <span className="bg-cyan-500/20 text-cyan-400 border border-cyan-400 px-1.5 py-0.5 rounded text-[10px] shrink-0 animate-bounce shadow-[0_0_10px_rgba(34,211,238,0.5)]">🎯 临界共振</span>}
-                    {isBTC && <span className="bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] shrink-0 ml-1">大盘中枢</span>}
-                    {isCCI && <span className="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] shrink-0 ml-1 animate-pulse">全息合成指数</span>}
-                    {res.crossZScore > 1.2 && !isCCI && <span className="bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/50 px-1.5 py-0.5 rounded text-[10px] shrink-0 ml-1 shadow-[0_0_10px_rgba(217,70,239,0.4)] animate-pulse">🔥 极度稀缺 Alpha (Z&gt;1.2)</span>}
+                    {res.isHL && <span className="bg-purple-900/50 text-purple-400 border border-purple-500/50 px-1.5 py-0.5 rounded text-[10px] shrink-0 ml-1 shadow-[0_0_10px_rgba(168,85,247,0.3)]">{t('card.hlNode')}</span>}
+                    {isKillZone && <span className="bg-cyan-500/20 text-cyan-400 border border-cyan-400 px-1.5 py-0.5 rounded text-[10px] shrink-0 animate-bounce shadow-[0_0_10px_rgba(34,211,238,0.5)]">{t('card.killZone')}</span>}
+                    {isBTC && <span className="bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] shrink-0 ml-1">{t('card.marketPivot')}</span>}
+                    {isCCI && <span className="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded text-[9px] sm:text-[10px] shrink-0 ml-1 animate-pulse">{t('card.compositeIndex')}</span>}
+                    {res.crossZScore > 1.2 && !isCCI && <span className="bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/50 px-1.5 py-0.5 rounded text-[10px] shrink-0 ml-1 shadow-[0_0_10px_rgba(217,70,239,0.4)] animate-pulse">{t('card.extremeAlpha')}</span>}
                   </h3>
                   <p className={`font-mono text-base sm:text-lg mt-1 flex items-center gap-2 ${isLiveMode && !isCCI ? 'text-green-400' : 'text-gray-300'}`}>
                     ${displayPrice.toPrecision(5)}
@@ -2908,14 +2933,14 @@ export default function App() {
                   <div className="text-3xl sm:text-4xl font-black" style={{ color: res.score >= 75 ? '#22d3ee' : res.score >= 55 ? '#818cf8' : res.score >= 35 ? '#9ca3af' : '#f87171' }}>{res.score}</div>
                   <div className="text-[9px] sm:text-[10px] text-gray-500 uppercase font-bold tracking-wider mt-1 cursor-help inline-block border-b border-dashed border-gray-600 hover:text-gray-300 transition-colors"
                     onMouseEnter={(e) => handleMouseEnterTooltip('score', res, e)}
-                    onMouseLeave={handleMouseLeaveTooltip}>V12 指数平滑分</div>
+                    onMouseLeave={handleMouseLeaveTooltip}>{t('card.score')}</div>
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3 sm:mb-4 relative z-10">
                 {!isCCI && (
                   <span className={`px-2 py-0.5 sm:py-1 text-[10px] sm:text-xs rounded-md font-medium tracking-wide border shadow-sm ${res.metrics.profileShape === 'P型' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30 shadow-[0_0_8px_rgba(244,63,94,0.2)]' : res.metrics.profileShape === 'b型' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 shadow-[0_0_8px_rgba(16,185,129,0.2)]' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30 shadow-[0_0_8px_rgba(99,102,241,0.2)]'}`}>
-                    {res.metrics.profileShape === 'P型' ? '🧱 P型压顶' : res.metrics.profileShape === 'b型' ? '🛡️ b型兜底' : '⚖️ D型平衡'}
+                    {res.metrics.profileShape === 'P型' ? t('card.profileP') : res.metrics.profileShape === 'b型' ? t('card.profileB') : t('card.profileD')}
                   </span>
                 )}
                 {res.signals.length > 0 ? res.signals.map((sig, i) => (
@@ -3103,8 +3128,8 @@ export default function App() {
           )}) : (
             <div className="col-span-full py-20 text-center border border-dashed border-gray-800 rounded-xl bg-gray-900/50">
               <RefreshCw className="w-10 h-10 text-cyan-500/50 animate-spin mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-300">正在接入 星际多点阵列节点...</h3>
-              <p className="text-gray-500 text-sm mt-2">首次同步全网深度订单簿与高频 K 线数据</p>
+              <h3 className="text-lg font-medium text-gray-300">{t('loading.connecting')}</h3>
+              <p className="text-gray-500 text-sm mt-2">{t('loading.connectingDesc')}</p>
             </div>
           )}
         </div>
@@ -3120,8 +3145,8 @@ export default function App() {
                     <Rocket className={`w-8 h-8 text-indigo-400 ${isRadarScanning ? 'animate-bounce' : ''}`} />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">星际雷达 <span className="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-xs font-mono border border-indigo-500/30">Top 200 漏斗算法</span></h2>
-                    <p className="text-sm text-gray-400 mt-1">自动剔除深熊标的，全网侦测爆发前夕的高潜密码 (≥65分)</p>
+                    <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">{t('radar.title')} <span className="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-xs font-mono border border-indigo-500/30">{t('radar.subtitle')}</span></h2>
+                    <p className="text-sm text-gray-400 mt-1">{t('radar.description')}</p>
                   </div>
                 </div>
                 <button onClick={closeRadar} className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition-colors"><X/></button>
@@ -3148,7 +3173,7 @@ export default function App() {
                      <Radar className={`w-24 h-24 ${isRadarScanning ? 'animate-spin text-indigo-500/50' : 'text-gray-800'}`} />
                      {isRadarScanning && <div className="absolute inset-0 bg-indigo-500/20 blur-3xl rounded-full"></div>}
                    </div>
-                   <p className="text-lg tracking-widest">{isRadarScanning ? "正在深空探测高分标的..." : "当前市场暂无符合 V8 标准的黄金标的"}</p>
+                   <p className="text-lg tracking-widest">{isRadarScanning ? t('radar.emptyScanning') : t('radar.emptyNoResults')}</p>
                  </div>
                ) : (
                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -3183,7 +3208,7 @@ export default function App() {
                           </div>
                         </div>
                         <button onClick={() => addCoinToRoster(res.symbol)} disabled={isAdded} className={`w-full py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2 ${isAdded ? 'bg-gray-950 text-gray-600 border border-gray-800 cursor-not-allowed' : 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/50 hover:bg-indigo-600 hover:text-white'}`}>
-                          {isAdded ? '已在监控阵列' : '+ 编入山寨兵团'}
+                          {isAdded ? t('buttons.addToRoster') : t('radar.addToRoster')}
                         </button>
                      </div>
                    )})}
@@ -3267,10 +3292,10 @@ export default function App() {
                   {/* API Key 输入框 */}
                   {(!getCurrentApiKey() || isEditingApiKey) && !isGeneratingReport && (
                     <div className="mb-3 flex items-center gap-2 bg-black/40 p-2 rounded-lg border border-indigo-500/30">
-                      <input type="password" placeholder={`在此填入 ${AI_PROVIDERS[selectedAiProvider].label} API Key...`} value={tempApiKey} onChange={(e) => setTempApiKey(e.target.value)}
+                      <input type="password" placeholder={`${AI_PROVIDERS[selectedAiProvider].label} ${t('detail.apiKeyPlaceholder')}`} value={tempApiKey} onChange={(e) => setTempApiKey(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') { saveCurrentApiKey(tempApiKey.trim()); setIsEditingApiKey(false); }}}
                         className="flex-1 bg-transparent text-xs text-gray-200 px-2 py-1 focus:outline-none placeholder-gray-600" />
-                      <button onClick={() => { saveCurrentApiKey(tempApiKey.trim()); setIsEditingApiKey(false); }} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded transition-colors whitespace-nowrap">保存</button>
+                      <button onClick={() => { saveCurrentApiKey(tempApiKey.trim()); setIsEditingApiKey(false); }} className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs px-3 py-1.5 rounded transition-colors whitespace-nowrap">{t('buttons.apiKeySave')}</button>
                       {getCurrentApiKey() && isEditingApiKey && <button onClick={() => setIsEditingApiKey(false)} className="text-gray-400 hover:text-white pl-1 pr-2"><X className="w-3 h-3"/></button>}
                     </div>
                   )}
@@ -3283,8 +3308,8 @@ export default function App() {
                         <div className="absolute inset-0 border-2 border-cyan-400 rounded-full border-t-transparent animate-spin"></div>
                         <Brain className="absolute inset-0 m-auto w-5 h-5 text-indigo-400 animate-pulse" />
                       </div>
-                      <div className="text-sm text-indigo-300 font-mono animate-pulse">{AI_PROVIDERS[selectedAiProvider].label} 神经网络交叉会诊中...</div>
-                      {selectedAiProvider === 'deepseek' && <div className="text-[10px] text-cyan-500/70 animate-pulse">DeepSeek-R1 深度推理链激活中...</div>}
+                      <div className="text-sm text-indigo-300 font-mono animate-pulse">{t('detail.aiGenerating', { provider: AI_PROVIDERS[selectedAiProvider].label })}</div>
+                      {selectedAiProvider === 'deepseek' && <div className="text-[10px] text-cyan-500/70 animate-pulse">{t('detail.aiDeepseekThinking')}</div>}
                     </div>
                   )}
 
@@ -3293,8 +3318,8 @@ export default function App() {
                     <div className="mb-3">
                       <button onClick={() => setShowReasoning(r => !r)}
                         className="w-full flex items-center justify-between text-[10px] text-cyan-600 hover:text-cyan-400 bg-cyan-950/30 border border-cyan-800/40 rounded-lg px-3 py-1.5 transition-colors">
-                        <span className="flex items-center gap-1.5"><Brain className="w-3 h-3" /> DeepSeek 推理链 (Chain-of-Thought)</span>
-                        <span>{showReasoning ? '▲ 收起' : '▼ 展开'}</span>
+                        <span className="flex items-center gap-1.5"><Brain className="w-3 h-3" /> {t('detail.aiReasoning')}</span>
+                        <span>{showReasoning ? t('detail.collapse') : t('detail.expand')}</span>
                       </button>
                       {showReasoning && (
                         <div className="mt-1 p-3 bg-cyan-950/20 border border-cyan-800/30 rounded-lg max-h-48 overflow-y-auto">
